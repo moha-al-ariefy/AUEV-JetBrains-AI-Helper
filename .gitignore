@@ -6,3 +6,5 @@ build/
 .gradle/
 gradle/wrapper/gradle-wrapper.jar
 
+PluginConfig.kt
+**/PluginConfig.kt

@@ -14,8 +14,8 @@ import java.nio.charset.StandardCharsets
 
 class AutoDevManager : EditorFactoryListener {
 
-    // ⚠️ Ensure this key is valid!
-    private val API_KEY = "YOUR_OPENAI_API_KEY_HERE"
+
+    private val API_KEY = PluginConfig.API_KEY
 
     private val alarm = Alarm()
 
@@ -39,10 +39,10 @@ class AutoDevManager : EditorFactoryListener {
                     return
                 }
 
-                // 3. Ignore large pastes
+                // 3. Ignore large pastes (more than 20 chars)
                 if (event.newFragment.length > 20) return
 
-                // 4. Debounce: Wait 600ms before asking AI
+                // 4. Debounce: Wait 600ms before asking AI to save credits/speed
                 alarm.addRequest({ fetchSuggestion(editor) }, 600)
             }
         })
@@ -57,12 +57,14 @@ class AutoDevManager : EditorFactoryListener {
             var textContext = ""
             var fileExtension = "java"
 
+            // 1. Safe Read Action (Prevents "Read Access" Crashes)
             val shouldProceed = ApplicationManager.getApplication().runReadAction<Boolean> {
                 if (editor.isDisposed) return@runReadAction false
+
                 val file = editor.virtualFile
                 if (file != null) fileExtension = file.extension ?: "txt"
-                val offset = editor.caretModel.offset
 
+                val offset = editor.caretModel.offset
                 // Capture last 1000 chars for context
                 textContext = editor.document.text.substring(0, offset).takeLast(1000)
                 return@runReadAction true
@@ -70,9 +72,11 @@ class AutoDevManager : EditorFactoryListener {
 
             if (!shouldProceed || textContext.isBlank()) return@executeOnPooledThread
 
-            // Optimization: Don't ask AI if we are in the middle of a word
+            // Optimization: Don't ask AI if we are in the middle of a word (e.g. typing "Syst")
+            // This prevents spamming the API while you are still typing a keyword.
             if (!textContext.last().isWhitespace() && !textContext.last().isLetterOrDigit() && textContext.last() != '.') {
-                // return@executeOnPooledThread // Optional: Uncomment to be stricter
+                // You can uncomment this if you want strict "end of word" triggering only
+                // return@executeOnPooledThread
             }
 
             println("DEBUG: Asking AI ($fileExtension)...")
@@ -84,6 +88,7 @@ class AutoDevManager : EditorFactoryListener {
                 val cleanSuggestion = cleanAIResponse(suggestion, textContext)
 
                 if (cleanSuggestion.isNotEmpty()) {
+                    // 2. Render on UI Thread
                     ApplicationManager.getApplication().invokeLater {
                         renderGhostText(editor, cleanSuggestion)
                     }
@@ -101,7 +106,7 @@ class AutoDevManager : EditorFactoryListener {
         currentSuggestion = text
         val offset = editor.caretModel.offset
 
-        // Draw the gray text
+        // Draw the gray text using our Renderer class
         currentInlay = editor.inlayModel.addInlineElement(offset, GhostInlayRenderer(text))
     }
 
@@ -123,7 +128,6 @@ class AutoDevManager : EditorFactoryListener {
 
         // 3. Smart Overlap Removal:
         // If the user typed "System.out", and AI returned "System.out.println", we want only ".println"
-        // We check the last 20 chars of context against the start of the suggestion.
         val contextTail = originalContext.takeLast(30)
         for (i in contextTail.indices) {
             val suffix = contextTail.substring(i)
@@ -144,7 +148,7 @@ class AutoDevManager : EditorFactoryListener {
         conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
 
-        // PROMPT UPGRADE: Strict JSON mode instructions (without actually forcing JSON mode)
+        // PROMPT UPGRADE: Strict JSON mode instructions
         val systemPrompt = "You are a $language code completion engine. Return ONLY the remaining code for the current line. Do NOT start with markdown. Do NOT repeat the user's existing code. If the code is complete, return empty string."
 
         val jsonInput = """
