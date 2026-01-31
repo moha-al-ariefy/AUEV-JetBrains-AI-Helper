@@ -1,0 +1,22 @@
+<idea-plugin>
+    <id>com.hackathon.aihelper</id>
+    <name>AI Auto-Dev</name>
+    <vendor>HackathonTeam</vendor>
+    <description>Real-time ghost text completion like Copilot.</description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <editorFactoryListener implementation="com.hackathon.aihelper.AutoDevManager"/>
+    </extensions>
+
+    <actions>
+        <action id="ApplyGhostText" class="com.hackathon.aihelper.ApplyGhostAction" text="Apply Suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+        </action>
+
+        <action id="ClearGhostText" class="com.hackathon.aihelper.ClearGhostAction" text="Clear Suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
+        </action>
+    </actions>
+</idea-plugin>
