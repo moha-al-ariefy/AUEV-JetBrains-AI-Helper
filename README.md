@@ -1,73 +1,61 @@
-# AI Auto-Dev (JetBrains Hackathon Submission)
+# AUEV (AI Unified Editor Vision) - Beta 0.4
 
-A complete AI development suite for IntelliJ IDEA. It combines the "Ghost Text" experience of GitHub Copilot with a context-aware Chat Assistant and a One-Click Security Auditor—all powered by OpenAI's GPT-4o.
+**AUEV** is a next-generation AI development suite for IntelliJ IDEA. It combines the "Ghost Text" experience of Copilot with a context-aware Chat Assistant and a One-Click Security Auditor.
 
-![Status](https://img.shields.io/badge/Status-Prototype-green) ![Platform](https://img.shields.io/badge/Platform-IntelliJ-blue)
+Now featuring **Multi-Provider Support** (OpenAI, Anthropic, Groq) and a **Dual-Agent Sanitizer** for perfect code insertions.
 
-## 🚀 Overview
-**AI Auto-Dev** reduces developer friction by predicting your next move and securing your code. It works in two powerful modes:
-1.  **Editor Mode:** Real-time ghost text completion as you type.
-2.  **Assistant Mode:** A conversational sidebar to refactor code, fix bugs, and audit security vulnerabilities.
+![Status](https://img.shields.io/badge/Status-Beta_0.4-orange) ![Platform](https://img.shields.io/badge/Platform-IntelliJ-blue)
 
-## ✨ Features
+## 🚀 Key Features
 
-### 1. 👻 Ghost Text (Auto-Complete)
-* **Real-Time Suggestions:** Analyzes your file context and suggests logical next steps.
-* **Non-Intrusive:** Suggestions appear in gray.
-* **Smart Triggers:** Press **`Tab`** to accept, keep typing to ignore.
-* **Debounced:** Saves API credits by waiting for you to pause typing.
+### 1. 👻 Smart Ghost Text (Dual-Agent Engine)
+* **Predicts Your Next Move:** Uses a "Writer" agent to generate code and a "Cleaner" agent to fix typos (e.g., `sysout` → `System.out.println`).
+* **Smart Zipper:** Aggressively prevents code repetition and infinite loops.
+* **Non-Intrusive:** Suggestions appear in gray. Press **`Tab`** to accept, **`Backspace`** to reject.
+* **Undo Support:** Accepted code is auto-formatted and respects your Undo stack.
 
-### 2. 💬 AI Chat Sidebar
-* **Context-Aware:** The AI knows which file you have open and "reads" your code automatically.
-* **Memory:** Keeps track of your conversation history so you can ask follow-up questions (e.g., *"Make that function thread-safe"*).
-* **One-Click Apply:** Generate code in the chat and click **`✅ Apply`** to instantly inject it into your editor. No copy-pasting required!
-* **Dynamic UI:** Resizable chat bubbles and professional code highlighting.
+### 2. 🧠 Multi-Provider Intelligence
+* **Bring Your Own Key:** The plugin automatically detects your API key type.
+    * **OpenAI (`sk-...`):** Uses GPT-4o for high-quality logic.
+    * **Anthropic (`sk-ant-...`):** Uses Claude 3.5 Sonnet for complex refactoring.
+    * **Groq (`gsk_...`):** Uses Llama 3 / Mixtral for **insanely fast** (low-latency) completions.
 
-### 3. 🛡️ Security Auto-Audit
+### 3. 💬 Context-Aware Chat
+* **Reads Your Mind:** The chat knows which file is open and includes it in the context automatically.
+* **One-Click Apply:** Click **`✅ Apply`** on any code block to instantly inject it into your editor without copy-pasting.
+
+### 4. 🛡️ Security Auto-Audit
 * **One-Click Scan:** detailed analysis of your current file against **OWASP Top 10** vulnerabilities.
 * **Instant Report:** Finds SQL Injections, hardcoded secrets, and weak cryptography, offering immediate fixes.
 
-## 🛠️ How It Works
-1.  **Context Capture:** The plugin reads the currently active editor file (extension, language, and content).
-2.  **GPT-4o Integration:** Sends optimized prompts to OpenAI with strict system instructions (e.g., "You are a Security Auditor").
-3.  **Inlay & Tool Window:** Uses IntelliJ's native Inlay Model for ghost text and a custom Swing/GridBagLayout UI for the sidebar.
-
 ## 📦 Installation & Setup
-This is a hackathon prototype. To run it locally, you must provide your own API key.
 
-1.  **Clone this repository.**
-2.  **Open in IntelliJ IDEA.**
-3.  **Create the Config File:**
-    * Navigate to `src/main/kotlin/com/hackathon/aihelper/`
-    * Create a new file named **`PluginConfig.kt`**
-    * Paste the following code (this file is ignored by Git to keep your key safe):
-    ```kotlin
-    package com.hackathon.aihelper
+1.  **Clone & Run:**
+    * Clone this repository.
+    * Open in IntelliJ IDEA.
+    * Run the `runIde` Gradle task.
 
-    object PluginConfig {
-        const val API_KEY = "sk-YOUR_OPENAI_API_KEY_HERE"
-    }
-    ```
-4.  **Run the Plugin:**
-    * Open the Gradle tool window on the right.
-    * Go to `Tasks` > `intellij` > `runIde`.
+2.  **Configure API Key:**
+    * Go to **Settings (Ctrl+Alt+S)** > **Tools** > **AI Auto-Dev**.
+    * Paste your API Key (OpenAI, Anthropic, or Groq).
+    * The plugin will **auto-detect** the provider and set the correct model.
 
 ## 🎥 Usage
 ### Ghost Text
-* **Start Typing:** Write code as usual.
+* **Type Code:** Start typing (e.g., `fun main`).
 * **Wait:** Pause for 600ms.
-* **Press Tab:** Use the `Tab` key to accept the gray suggestion.
+* **Accept:** Press **`Tab`** to insert the code.
+* **Reject:** Press **`Backspace`** to clear the suggestion.
 
 ### AI Assistant Sidebar
-* **Open Chat:** Click **"AI Assistant"** on the right sidebar or press a shortcut (if configured).
-* **Ask Questions:** Type *"Explain this code"* or *"Refactor for readability"*.
-* **Apply Code:** If the AI generates code, click the green **`✅ Apply`** button to update your file instantly.
-* **Run Audit:** Click the **`🛡️ Audit`** button to scan for security flaws.
+* **Open Chat:** Click **"AI Assistant"** on the right sidebar.
+* **Ask Questions:** *"Explain this class"* or *"Fix this bug"*.
+* **Apply Fixes:** Click the `✅ Apply` button on generated code blocks.
 
 ## 🏗️ Tech Stack
 * **Language:** Kotlin
-* **Framework:** IntelliJ Platform SDK (Swing UI)
-* **AI Model:** OpenAI GPT-4o API
+* **UI:** IntelliJ Platform SDK (Swing, Inlays, ToolWindows)
+* **AI Backend:** Universal Provider Logic (Supports OpenAI, Anthropic, Groq APIs)
 
 ---
 *Built for the JetBrains UOBD_GDG Hackathon 2026.*

@@ -1,5 +1,6 @@
 package com.hackathon.aihelper
 
+import com.hackathon.aihelper.settings.AppSettingsState
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.editor.Editor
 import com.intellij.openapi.editor.Inlay
@@ -9,183 +10,210 @@ import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
 import com.intellij.util.Alarm
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI
 import java.nio.charset.StandardCharsets
 
 class AutoDevManager : EditorFactoryListener {
 
-
-    private val API_KEY = PluginConfig.API_KEY
-
     private val alarm = Alarm()
 
     companion object {
-        var currentInlay: Inlay<*>? = null
-        var currentSuggestion: String = ""
+        val currentMergeFix = java.util.WeakHashMap<Editor, GhostSanitizer.MergeResult>()
+        val currentInlays = java.util.WeakHashMap<Editor, Inlay<*>>()
     }
 
     override fun editorCreated(event: EditorFactoryEvent) {
         val editor = event.editor
         editor.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
-                // 1. ALWAYS clear suggestion on any change (Typing or Backspace)
                 resetSuggestion(editor)
                 alarm.cancelAllRequests()
-
-                // 2. BACKSPACE LOGIC:
-                // If text length decreased (old > new) or new length is 0, it's a deletion.
-                // We return immediately so we DO NOT ask AI after a backspace.
-                if (event.oldLength > event.newLength || event.newFragment.isEmpty()) {
-                    return
-                }
-
-                // 3. Ignore large pastes (more than 20 chars)
-                if (event.newFragment.length > 20) return
-
-                // 4. Debounce: Wait 600ms before asking AI to save credits/speed
+                if (event.newFragment.length > 100) return
                 alarm.addRequest({ fetchSuggestion(editor) }, 600)
             }
         })
     }
 
-    override fun editorReleased(event: EditorFactoryEvent) {
-        resetSuggestion(event.editor)
-    }
+    override fun editorReleased(event: EditorFactoryEvent) = resetSuggestion(event.editor)
 
     private fun fetchSuggestion(editor: Editor) {
         ApplicationManager.getApplication().executeOnPooledThread {
-            var textContext = ""
-            var fileExtension = "java"
+            val settings = AppSettingsState.getInstance()
+            if (settings.apiKey.isBlank()) return@executeOnPooledThread
 
-            // 1. Safe Read Action (Prevents "Read Access" Crashes)
+            var fullContext = ""
+            var currentLinePrefix = ""
+            var suffix = ""
+
             val shouldProceed = ApplicationManager.getApplication().runReadAction<Boolean> {
                 if (editor.isDisposed) return@runReadAction false
-
-                val file = editor.virtualFile
-                if (file != null) fileExtension = file.extension ?: "txt"
-
                 val offset = editor.caretModel.offset
-                // Capture last 1000 chars for context
-                textContext = editor.document.text.substring(0, offset).takeLast(1000)
+                val text = editor.document.text
+
+                // 1. Context
+                val start = (offset - 2500).coerceAtLeast(0)
+                fullContext = text.substring(start, offset)
+
+                // 2. Prefix (Trimmed line is safest for Sanitizer)
+                val lineStart = editor.document.getLineStartOffset(editor.caretModel.logicalPosition.line)
+                currentLinePrefix = text.substring(lineStart, offset).trim()
+
+                // 3. Suffix
+                val suffixEnd = (offset + 1000).coerceAtMost(text.length)
+                suffix = text.substring(offset, suffixEnd)
+
                 return@runReadAction true
             }
 
-            if (!shouldProceed || textContext.isBlank()) return@executeOnPooledThread
-
-            // Optimization: Don't ask AI if we are in the middle of a word (e.g. typing "Syst")
-            // This prevents spamming the API while you are still typing a keyword.
-            if (!textContext.last().isWhitespace() && !textContext.last().isLetterOrDigit() && textContext.last() != '.') {
-                // You can uncomment this if you want strict "end of word" triggering only
-                // return@executeOnPooledThread
-            }
-
-            println("DEBUG: Asking AI ($fileExtension)...")
+            if (!shouldProceed || fullContext.isBlank()) return@executeOnPooledThread
 
             try {
-                val suggestion = callOpenAI(textContext, fileExtension)
-                println("DEBUG: Raw AI: '$suggestion'")
+                val provider = when {
+                    settings.apiKey.startsWith("sk-ant-") -> Provider.ANTHROPIC
+                    settings.apiKey.startsWith("gsk_") -> Provider.GROQ
+                    else -> Provider.OPENAI
+                }
 
-                val cleanSuggestion = cleanAIResponse(suggestion, textContext)
+                println("[AutoDev] 🚀 Requesting completion from ${provider.name}...")
+                val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix)
 
-                if (cleanSuggestion.isNotEmpty()) {
-                    // 2. Render on UI Thread
-                    ApplicationManager.getApplication().invokeLater {
-                        renderGhostText(editor, cleanSuggestion)
+                if (rawSuggestion.isNotBlank()) {
+                    // FIX: Pass the FULL trimmed line.
+                    // The Sanitizer is now smart enough to handle "System.out.println" without deleting it.
+                    val fix = GhostSanitizer.sanitize(currentLinePrefix, suffix, rawSuggestion)
+
+                    if (fix.textToInsert.isNotBlank()) {
+                        println("[AutoDev] ✅ Ghost Text Ready: '${fix.textToInsert}'")
+                        ApplicationManager.getApplication().invokeLater {
+                            renderGhostText(editor, fix)
+                        }
                     }
                 }
             } catch (e: Exception) {
-                println("DEBUG: ERROR! ${e.message}")
+                println("[AutoDev] 💥 API Error: ${e.message}")
             }
         }
     }
 
-    private fun renderGhostText(editor: Editor, text: String) {
+    private fun renderGhostText(editor: Editor, fix: GhostSanitizer.MergeResult) {
         if (editor.isDisposed) return
         resetSuggestion(editor)
-
-        currentSuggestion = text
+        currentMergeFix[editor] = fix
         val offset = editor.caretModel.offset
-
-        // Draw the gray text using our Renderer class
-        currentInlay = editor.inlayModel.addInlineElement(offset, GhostInlayRenderer(text))
+        val inlay = editor.inlayModel.addInlineElement(offset, GhostInlayRenderer(fix.textToInsert))
+        if (inlay != null) currentInlays[editor] = inlay
     }
 
     fun resetSuggestion(editor: Editor) {
-        currentInlay?.dispose()
-        currentInlay = null
-        currentSuggestion = ""
+        currentInlays[editor]?.dispose()
+        currentInlays.remove(editor)
+        currentMergeFix.remove(editor)
     }
 
-    // --- SMART CLEANING (Fixes the "System.out" duplication) ---
-    private fun cleanAIResponse(response: String, originalContext: String): String {
-        var clean = response.trimEnd()
+    enum class Provider { OPENAI, ANTHROPIC, GROQ }
 
-        // 1. Remove Markdown trash
-        clean = clean.replace("```java", "").replace("```", "").replace("`", "").trim()
+    private fun callAI(provider: Provider, apiKey: String, model: String, prefix: String, suffix: String): String {
+        val sysPrompt = """
+            You are a low-latency code completion engine.
+            Complete the code at the [CURSOR] position.
+            - Output ONLY the missing code. 
+            - No markdown.
+            - No repetition of code found in the SUFFIX.
+            - Maintain indentation.
+            - If user typed a shortcut (e.g. 'sysout'), expand it fully.
+        """.trimIndent()
 
-        // 2. Remove "Chatty" prefixes
-        if (clean.startsWith("It seems") || clean.startsWith("Here is")) return ""
+        val userContent = "PREFIX:\n$prefix\n\n[CURSOR]\n\nSUFFIX:\n$suffix"
 
-        // 3. Smart Overlap Removal:
-        // If the user typed "System.out", and AI returned "System.out.println", we want only ".println"
-        val contextTail = originalContext.takeLast(30)
-        for (i in contextTail.indices) {
-            val suffix = contextTail.substring(i)
-            if (clean.startsWith(suffix)) {
-                clean = clean.substring(suffix.length)
-                break
-            }
+        val urlStr = when (provider) {
+            Provider.ANTHROPIC -> "https://api.anthropic.com/v1/messages"
+            Provider.GROQ -> "https://api.groq.com/openai/v1/chat/completions"
+            Provider.OPENAI -> "https://api.openai.com/v1/chat/completions"
         }
 
-        return clean
-    }
-
-    private fun callOpenAI(contextCode: String, language: String): String {
-        val url = URL("https://api.openai.com/v1/chat/completions")
+        val url = URI.create(urlStr).toURL()
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer $API_KEY")
-        conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
+        conn.connectTimeout = 3000
+        conn.readTimeout = 5000
 
-        // PROMPT UPGRADE: Strict JSON mode instructions
-        val systemPrompt = "You are a $language code completion engine. Return ONLY the remaining code for the current line. Do NOT start with markdown. Do NOT repeat the user's existing code. If the code is complete, return empty string."
+        if (provider == Provider.ANTHROPIC) {
+            conn.setRequestProperty("x-api-key", apiKey)
+            conn.setRequestProperty("anthropic-version", "2023-06-01")
+            conn.setRequestProperty("content-type", "application/json")
+        } else {
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.setRequestProperty("Content-Type", "application/json")
+        }
 
-        val jsonInput = """
+        val jsonInput = if (provider == Provider.ANTHROPIC) {
+            """
             {
-                "model": "gpt-4o", 
+                "model": "${model.ifBlank { "claude-3-5-sonnet-20240620" }}",
+                "max_tokens": 128,
+                "system": "${escapeJson(sysPrompt)}",
                 "messages": [
-                    {"role": "system", "content": "$systemPrompt"},
-                    {"role": "user", "content": "${escapeJson(contextCode)}"}
-                ], 
-                "max_tokens": 60, 
-                "temperature": 0.1,
-                "stop": ["\n"]
+                    {"role": "user", "content": "${escapeJson(userContent)}"}
+                ],
+                "temperature": 0.1
             }
-        """.trimIndent()
+            """.trimIndent()
+        } else {
+            """
+            {
+                "model": "${model.ifBlank { "gpt-4o" }}",
+                "messages": [
+                    {"role": "system", "content": "${escapeJson(sysPrompt)}"},
+                    {"role": "user", "content": "${escapeJson(userContent)}"}
+                ],
+                "max_tokens": 128,
+                "temperature": 0.1,
+                "stop": ["SUFFIX"] 
+            }
+            """.trimIndent()
+        }
 
         conn.outputStream.use { os -> os.write(jsonInput.toByteArray(StandardCharsets.UTF_8)) }
 
-        val code = conn.responseCode
-        if (code != 200) throw RuntimeException("API Error $code")
+        if (conn.responseCode != 200) {
+            val error = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown"
+            println("[AutoDev] API Error ${conn.responseCode}: $error")
+            return ""
+        }
 
         val response = conn.inputStream.bufferedReader().use { it.readText() }
-        return extractContent(response)
+        return extractContent(response, provider)
     }
 
-    private fun escapeJson(text: String) = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    private fun escapeJson(text: String) = text
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\t", "\\t")
 
-    private fun extractContent(json: String): String {
-        val startMarker = "\"content\": \""
-        val start = json.indexOf(startMarker)
+    private fun extractContent(json: String, provider: Provider): String {
+        val searchMarker = if (provider == Provider.ANTHROPIC) "\"text\": \"" else "\"content\": \""
+        val start = json.indexOf(searchMarker)
         if (start == -1) return ""
-        val actualStart = start + startMarker.length
+        val actualStart = start + searchMarker.length
 
+        val sb = StringBuilder()
         var i = actualStart
+        var escaped = false
+
         while (i < json.length) {
-            if (json[i] == '"' && json[i-1] != '\\') break
+            val c = json[i]
+            if (escaped) {
+                when (c) {
+                    'n' -> sb.append('\n'); 'r' -> sb.append('\r'); 't' -> sb.append('\t'); '\\' -> sb.append('\\'); '"' -> sb.append('"'); else -> sb.append(c)
+                }
+                escaped = false
+            } else {
+                if (c == '\\') escaped = true else if (c == '"') break else sb.append(c)
+            }
             i++
         }
-        return json.substring(actualStart, i).replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\").replace("\\t", "\t")
+        return sb.toString()
     }
 }

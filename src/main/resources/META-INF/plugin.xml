@@ -4,18 +4,38 @@
     <vendor>HackathonTeam</vendor>
     <description>Complete AI Suite: Ghost Text, Chat, and Security Audit.</description>
 
+    <idea-version since-build="241.0" until-build="255.*" />
+
     <depends>com.intellij.modules.platform</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <editorFactoryListener implementation="com.hackathon.aihelper.AutoDevManager"/>
 
+        <!-- Used standard IntelliJ icon to prevent crash -->
         <toolWindow id="AI Assistant" secondary="true" anchor="right" icon="AllIcons.Actions.Lightning"
                     factoryClass="com.hackathon.aihelper.ui.AIChatToolWindowFactory"/>
+
+        <applicationService serviceImplementation="com.hackathon.aihelper.settings.AppSettingsState"/>
+
+        <applicationConfigurable
+                parentId="tools"
+                instance="com.hackathon.aihelper.settings.AppSettingsConfigurable"
+                id="com.hackathon.aihelper.settings.AppSettingsConfigurable"
+                displayName="AI Auto-Dev"/>
     </extensions>
 
     <actions>
         <action id="OpenAIChat" class="com.hackathon.aihelper.actions.OpenChatAction" text="Open AI Chat">
             <keyboard-shortcut keymap="$default" first-keystroke="control H"/>
+        </action>
+
+        <action id="ApplyGhostText" class="com.hackathon.aihelper.ApplyGhostAction" text="Accept AI Suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+        </action>
+
+        <action id="ClearGhostText" class="com.hackathon.aihelper.ClearGhostAction" text="Clear AI Suggestion">
+            <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
+            <keyboard-shortcut keymap="$default" first-keystroke="BACK_SPACE"/>
         </action>
     </actions>
 </idea-plugin>

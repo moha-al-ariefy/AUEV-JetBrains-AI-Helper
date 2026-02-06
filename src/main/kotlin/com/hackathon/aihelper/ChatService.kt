@@ -1,6 +1,6 @@
 package com.hackathon.aihelper.ui
 
-import com.hackathon.aihelper.PluginConfig
+import com.hackathon.aihelper.settings.AppSettingsState
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -12,36 +12,28 @@ import java.util.function.Consumer
 
 object ChatService {
 
-    private val API_KEY = PluginConfig.API_KEY
+    // Helper to get Key from Settings
+    private val apiKey: String
+        get() = AppSettingsState.getInstance().apiKey
+
+    private val model: String
+        get() = AppSettingsState.getInstance().modelName.ifBlank { "gpt-4o" }
 
     // --- CHAT LOGIC ---
     fun sendMessage(project: Project, userPrompt: String, onResponse: Consumer<String>) {
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor
+        if (apiKey.isBlank()) {
+            onResponse.accept("⚠️ Please set your API Key in Settings > AI Auto-Dev.")
+            return
+        }
 
-        // 1. Detect File Type
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor
         val currentCode = editor?.document?.text ?: "No file open."
         val fileExtension = editor?.virtualFile?.extension ?: "unknown"
 
-        // Map extension to language name for better AI context
-        val language = when (fileExtension) {
-            "kt" -> "Kotlin"
-            "java" -> "Java"
-            "py" -> "Python"
-            "js" -> "JavaScript"
-            "ts" -> "TypeScript"
-            "cpp", "c", "h" -> "C/C++"
-            else -> fileExtension.uppercase()
-        }
-
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                // 2. Add Language Context to System Prompt
-                val systemPrompt = "You are an expert $language coding assistant. " +
-                        "If the user asks for code, output ONLY the code block. " +
-                        "If they ask a question, answer normally. " +
-                        "Do not use markdown blocks like ```java or ```c in the final output unless requested."
-
-                val fullMessage = "Current File ($language):\n$currentCode\n\nRequest: $userPrompt"
+                val systemPrompt = "You are an expert coding assistant. Current File ($fileExtension). Provide concise, correct code."
+                val fullMessage = "Context:\n$currentCode\n\nUser Question: $userPrompt"
 
                 val response = callOpenAI(systemPrompt, fullMessage)
 
@@ -58,32 +50,29 @@ object ChatService {
 
     // --- AUDIT LOGIC ---
     fun runAudit(project: Project, onResponse: Consumer<String>) {
-        val editor = FileEditorManager.getInstance(project).selectedTextEditor
-        if (editor == null) {
-            onResponse.accept("No file open to audit.")
+        if (apiKey.isBlank()) {
+            onResponse.accept("⚠️ Please set your API Key in Settings.")
             return
         }
+
+        val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
         val currentCode = editor.document.text
-        val fileExtension = editor.virtualFile?.extension ?: "code"
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val response = callOpenAI(
-                    systemPrompt = "You are a Security Auditor. Scan this .$fileExtension file for vulnerabilities. Be concise. List issues and fixes.",
-                    userMessage = currentCode
-                )
+                val prompt = "You are a Security Auditor. Analyze this code for vulnerabilities (OWASP Top 10). Return a summary list."
+                val response = callOpenAI(prompt, currentCode)
+
                 ApplicationManager.getApplication().invokeLater {
                     onResponse.accept(response)
                 }
             } catch (e: Exception) {
-                ApplicationManager.getApplication().invokeLater {
-                    onResponse.accept("Audit Error: ${e.message}")
-                }
+                onResponse.accept("Error: ${e.message}")
             }
         }
     }
 
-    // --- FILE MODIFICATION LOGIC ---
+    // --- UTILS ---
     fun applyCodeToCurrentFile(project: Project, code: String) {
         val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
         val cleanCode = cleanMarkdown(code)
@@ -95,60 +84,74 @@ object ChatService {
         }
     }
 
-    // Helper to strip ```java, ```c, etc.
     fun cleanMarkdown(text: String): String {
         return text.replace(Regex("```[a-zA-Z]*"), "")
             .replace("```", "")
             .trim()
     }
 
-    // --- NETWORKING ---
+    // --- NETWORK ---
     private fun callOpenAI(systemPrompt: String, userMessage: String): String {
         val url = URL("https://api.openai.com/v1/chat/completions")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer $API_KEY")
+        conn.setRequestProperty("Authorization", "Bearer $apiKey")
         conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
 
         val jsonInput = """
             {
-                "model": "gpt-4o",
+                "model": "$model",
                 "messages": [
                     {"role": "system", "content": "${escapeJson(systemPrompt)}"},
                     {"role": "user", "content": "${escapeJson(userMessage)}"}
                 ],
-                "max_tokens": 1500
+                "max_tokens": 1000
             }
         """.trimIndent()
 
         conn.outputStream.use { os -> os.write(jsonInput.toByteArray(StandardCharsets.UTF_8)) }
 
         if (conn.responseCode != 200) {
-            val errorStream = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown Error"
-            throw RuntimeException("API Error ${conn.responseCode}: $errorStream")
+            val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+            throw RuntimeException("API Error: $err")
         }
 
         return extractContent(conn.inputStream.bufferedReader().use { it.readText() })
     }
 
-    private fun escapeJson(text: String) = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+    private fun escapeJson(text: String) = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\t", "\\t")
 
     private fun extractContent(json: String): String {
+        // Simple manual JSON parsing to avoid heavy libraries
         val startMarker = "\"content\": \""
         val start = json.indexOf(startMarker)
         if (start == -1) return "Error parsing response."
 
         val actualStart = start + startMarker.length
+        val sb = StringBuilder()
         var i = actualStart
+        var escaped = false
+
         while (i < json.length) {
-            if (json[i] == '"' && json[i-1] != '\\') break
+            val c = json[i]
+            if (escaped) {
+                when(c) {
+                    'n' -> sb.append('\n')
+                    'r' -> sb.append('\r')
+                    't' -> sb.append('\t')
+                    '"' -> sb.append('"')
+                    '\\' -> sb.append('\\')
+                    else -> sb.append(c)
+                }
+                escaped = false
+            } else {
+                if (c == '\\') escaped = true
+                else if (c == '"') break
+                else sb.append(c)
+            }
             i++
         }
-        return json.substring(actualStart, i)
-            .replace("\\n", "\n")
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\")
-            .replace("\\t", "\t")
+        return sb.toString()
     }
 }
