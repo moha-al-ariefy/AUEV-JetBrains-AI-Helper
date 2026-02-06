@@ -26,9 +26,13 @@ class AutoDevManager : EditorFactoryListener {
         val editor = event.editor
         editor.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
+                // If they turned off the ghost, don't haunt them.
+                if (!AppSettingsState.getInstance().enableGhostText) return
+
                 resetSuggestion(editor)
                 alarm.cancelAllRequests()
                 if (event.newFragment.length > 100) return
+                // 600ms debounce: enough time to sip coffee, not enough to lose focus.
                 alarm.addRequest({ fetchSuggestion(editor) }, 600)
             }
         })
@@ -39,7 +43,9 @@ class AutoDevManager : EditorFactoryListener {
     private fun fetchSuggestion(editor: Editor) {
         ApplicationManager.getApplication().executeOnPooledThread {
             val settings = AppSettingsState.getInstance()
-            if (settings.apiKey.isBlank()) return@executeOnPooledThread
+
+            // Double check: if they disabled it or forgot the key, abort mission.
+            if (!settings.enableGhostText || settings.apiKey.isBlank()) return@executeOnPooledThread
 
             var fullContext = ""
             var currentLinePrefix = ""
@@ -74,12 +80,12 @@ class AutoDevManager : EditorFactoryListener {
                     else -> Provider.OPENAI
                 }
 
+                // Log acts as my only debugger at this hour.
                 println("[AutoDev] 🚀 Requesting completion from ${provider.name}...")
-                val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix)
+
+                val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix, settings.enableSecurityFocus)
 
                 if (rawSuggestion.isNotBlank()) {
-                    // FIX: Pass the FULL trimmed line.
-                    // The Sanitizer is now smart enough to handle "System.out.println" without deleting it.
                     val fix = GhostSanitizer.sanitize(currentLinePrefix, suffix, rawSuggestion)
 
                     if (fix.textToInsert.isNotBlank()) {
@@ -112,9 +118,14 @@ class AutoDevManager : EditorFactoryListener {
 
     enum class Provider { OPENAI, ANTHROPIC, GROQ }
 
-    private fun callAI(provider: Provider, apiKey: String, model: String, prefix: String, suffix: String): String {
+    // Added 'securityMode' param here
+    private fun callAI(provider: Provider, apiKey: String, model: String, prefix: String, suffix: String, securityMode: Boolean): String {
+
+        // If security mode is on, we ask the AI to be extra paranoid.
+        val securityInstruction = if (securityMode) "CRITICAL: PRIORITIZE SECURITY. No hardcoded secrets. No SQL injection." else ""
+
         val sysPrompt = """
-            You are a low-latency code completion engine.
+            You are a low-latency code completion engine. $securityInstruction
             Complete the code at the [CURSOR] position.
             - Output ONLY the missing code. 
             - No markdown.
