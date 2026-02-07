@@ -1,41 +1,49 @@
 <idea-plugin>
     <id>com.hackathon.aihelper</id>
-    <name>AI Auto-Dev Suite</name>
-    <vendor>HackathonTeam</vendor>
-    <description>Complete AI Suite: Ghost Text, Chat, and Security Audit.</description>
+    <name>AUEV</name>
+    <vendor email="ma9802234@gmail.com">Solo Dev</vendor>
 
-    <idea-version since-build="241.0" until-build="255.*" />
+    <description><![CDATA[
+    Adds ghost text to your editor. It's like having a senior dev over your shoulder,
+    but without the judgment. <br>
+    <em>Powered by caffeine and anxiety.</em>
+    ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.java</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <editorFactoryListener implementation="com.hackathon.aihelper.AutoDevManager"/>
-
-        <!-- Used standard IntelliJ icon to prevent crash -->
-        <toolWindow id="AI Assistant" secondary="true" anchor="right" icon="AllIcons.Actions.Lightning"
-                    factoryClass="com.hackathon.aihelper.ui.AIChatToolWindowFactory"/>
-
         <applicationService serviceImplementation="com.hackathon.aihelper.settings.AppSettingsState"/>
 
         <applicationConfigurable
                 parentId="tools"
                 instance="com.hackathon.aihelper.settings.AppSettingsConfigurable"
-                id="com.hackathon.aihelper.settings.AppSettingsConfigurable"
-                displayName="AI Auto-Dev"/>
+                id="com.hackathon.aihelper.AppSettingsConfigurable"
+                displayName="AUEV"/>
+
+        <toolWindow id="AI Assistant"
+                    secondary="false"
+                    anchor="right"
+                    icon="AllIcons.General.ContextHelp"
+                    factoryClass="com.hackathon.aihelper.ui.AIChatToolWindowFactory"/>
+
+        <postStartupActivity implementation="com.hackathon.aihelper.PluginStartup"/>
     </extensions>
 
     <actions>
-        <action id="OpenAIChat" class="com.hackathon.aihelper.actions.OpenChatAction" text="Open AI Chat">
-            <keyboard-shortcut keymap="$default" first-keystroke="control H"/>
-        </action>
-
-        <action id="ApplyGhostText" class="com.hackathon.aihelper.ApplyGhostAction" text="Accept AI Suggestion">
+        <action id="com.hackathon.aihelper.ApplyGhostAction"
+                class="com.hackathon.aihelper.ApplyGhostAction"
+                text="Apply AI Suggestion"
+                description="Accepts the current ghost text because typing is hard">
             <keyboard-shortcut keymap="$default" first-keystroke="TAB"/>
+            <add-to-group group-id="EditorActions" anchor="last"/>
         </action>
 
-        <action id="ClearGhostText" class="com.hackathon.aihelper.ClearGhostAction" text="Clear AI Suggestion">
+        <action id="com.hackathon.aihelper.ClearGhostAction"
+                class="com.hackathon.aihelper.ClearGhostAction"
+                text="Clear AI Suggestion"
+                description="Banishes the ghost back to the void">
             <keyboard-shortcut keymap="$default" first-keystroke="ESCAPE"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="BACK_SPACE"/>
         </action>
     </actions>
 </idea-plugin>

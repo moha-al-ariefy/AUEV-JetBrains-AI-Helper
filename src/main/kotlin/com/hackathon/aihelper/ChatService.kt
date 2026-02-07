@@ -3,6 +3,7 @@ package com.hackathon.aihelper.ui
 import com.hackathon.aihelper.settings.AppSettingsState
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.command.WriteCommandAction
+import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import java.net.HttpURLConnection
@@ -12,7 +13,6 @@ import java.util.function.Consumer
 
 object ChatService {
 
-    // Helper to get Key from Settings
     private val apiKey: String
         get() = AppSettingsState.getInstance().apiKey
 
@@ -22,7 +22,7 @@ object ChatService {
     // --- CHAT LOGIC ---
     fun sendMessage(project: Project, userPrompt: String, onResponse: Consumer<String>) {
         if (apiKey.isBlank()) {
-            onResponse.accept("⚠️ Please set your API Key in Settings > AI Auto-Dev.")
+            onResponse.accept("⚠️ Please configure your API Key in Settings.")
             return
         }
 
@@ -32,7 +32,26 @@ object ChatService {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val systemPrompt = "You are an expert coding assistant. Current File ($fileExtension). Provide concise, correct code."
+                // FIXED: Professional, Senior-Level System Prompt
+                val systemPrompt = """
+                    You are AUEV, an expert coding assistant integrated into IntelliJ IDEA.
+                    
+                    RULES FOR CHAT:
+                    - Be professional, concise, and helpful. 
+                    - Focus on high-quality, maintainable solutions.
+                    
+                    RULES FOR CODE GENERATION:
+                    - ALWAYS return the FULL, executable code. No placeholders.
+                    - Code must follow best practices (SOLID principles, Clean Code).
+                    - COMMENTS MUST BE PROFESSIONAL:
+                      - Use standard Javadoc/KDoc formatting where appropriate.
+                      - Explain *WHY*, not just *what*.
+                      - Use imperative voice (e.g., "Calculates the hash..." not "I calculate...").
+                      - Do not use first-person pronouns ("I", "We").
+                    
+                    Current Context: File Type ($fileExtension).
+                """.trimIndent()
+
                 val fullMessage = "Context:\n$currentCode\n\nUser Question: $userPrompt"
 
                 val response = callOpenAI(systemPrompt, fullMessage)
@@ -51,7 +70,7 @@ object ChatService {
     // --- AUDIT LOGIC ---
     fun runAudit(project: Project, onResponse: Consumer<String>) {
         if (apiKey.isBlank()) {
-            onResponse.accept("⚠️ Please set your API Key in Settings.")
+            onResponse.accept("⚠️ Set your API Key first.")
             return
         }
 
@@ -60,7 +79,8 @@ object ChatService {
 
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
-                val prompt = "You are a Security Auditor. Analyze this code for vulnerabilities (OWASP Top 10). Return a summary list."
+                // Security Audit Prompt remains strict
+                val prompt = "You are a Senior Security Engineer. Analyze this code for vulnerabilities (OWASP Top 10). Return a concise, prioritized list of issues and recommended fixes."
                 val response = callOpenAI(prompt, currentCode)
 
                 ApplicationManager.getApplication().invokeLater {
@@ -72,27 +92,53 @@ object ChatService {
         }
     }
 
-    // --- UTILS ---
+    // --- EDITOR MANIPULATION ---
+
     fun applyCodeToCurrentFile(project: Project, code: String) {
         val editor = FileEditorManager.getInstance(project).selectedTextEditor ?: return
-        val cleanCode = cleanMarkdown(code)
+        val cleanCode = extractCodeBlock(code)
 
         ApplicationManager.getApplication().invokeLater {
-            WriteCommandAction.runWriteCommandAction(project) {
+            WriteCommandAction.runWriteCommandAction(project, "Apply AI Code", "AUEV", {
                 editor.document.setText(cleanCode)
+            })
+        }
+    }
+
+    fun undoLastAction(project: Project) {
+        val fileEditor = FileEditorManager.getInstance(project).selectedEditor
+        if (fileEditor != null) {
+            ApplicationManager.getApplication().invokeLater {
+                val undoManager = UndoManager.getInstance(project)
+                if (undoManager.isUndoAvailable(fileEditor)) {
+                    undoManager.undo(fileEditor)
+                }
             }
         }
     }
 
+    // --- TEXT PARSING ---
+
     fun cleanMarkdown(text: String): String {
-        return text.replace(Regex("```[a-zA-Z]*"), "")
-            .replace("```", "")
-            .trim()
+        return extractCodeBlock(text)
+    }
+
+    private fun extractCodeBlock(text: String): String {
+        // Robust Regex to extract code between ```backticks```
+        val pattern = Regex("```(?:[a-zA-Z]*)?\\n([\\s\\S]*?)```")
+        val match = pattern.find(text)
+
+        return if (match != null) {
+            match.groupValues[1].trim()
+        } else {
+            // Fallback for when the AI skips markdown (rare)
+            text.replace("```", "").trim()
+        }
     }
 
     // --- NETWORK ---
     private fun callOpenAI(systemPrompt: String, userMessage: String): String {
-        val url = URL("https://api.openai.com/v1/chat/completions")
+        val url = URL("[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)")
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
         conn.setRequestProperty("Authorization", "Bearer $apiKey")
@@ -106,7 +152,7 @@ object ChatService {
                     {"role": "system", "content": "${escapeJson(systemPrompt)}"},
                     {"role": "user", "content": "${escapeJson(userMessage)}"}
                 ],
-                "max_tokens": 1000
+                "max_tokens": 2000
             }
         """.trimIndent()
 
@@ -123,7 +169,6 @@ object ChatService {
     private fun escapeJson(text: String) = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\t", "\\t")
 
     private fun extractContent(json: String): String {
-        // Simple manual JSON parsing to avoid heavy libraries
         val startMarker = "\"content\": \""
         val start = json.indexOf(startMarker)
         if (start == -1) return "Error parsing response."

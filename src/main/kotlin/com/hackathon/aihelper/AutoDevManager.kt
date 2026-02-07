@@ -1,29 +1,81 @@
 package com.hackathon.aihelper
 
 import com.hackathon.aihelper.settings.AppSettingsState
+import com.intellij.openapi.Disposable // <--- NEW FRIEND
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.diagnostic.Logger
 import com.intellij.openapi.editor.Editor
+import com.intellij.openapi.editor.EditorFactory
 import com.intellij.openapi.editor.Inlay
 import com.intellij.openapi.editor.event.DocumentEvent
 import com.intellij.openapi.editor.event.DocumentListener
 import com.intellij.openapi.editor.event.EditorFactoryEvent
 import com.intellij.openapi.editor.event.EditorFactoryListener
+import com.intellij.openapi.util.Disposer // <--- THE REAPER
 import com.intellij.util.Alarm
 import java.net.HttpURLConnection
 import java.net.URI
 import java.nio.charset.StandardCharsets
 
-class AutoDevManager : EditorFactoryListener {
+object AutoDevManager : EditorFactoryListener {
 
     private val alarm = Alarm()
+    private val LOG = Logger.getInstance(AutoDevManager::class.java)
 
-    companion object {
-        val currentMergeFix = java.util.WeakHashMap<Editor, GhostSanitizer.MergeResult>()
-        val currentInlays = java.util.WeakHashMap<Editor, Inlay<*>>()
+    // I use this 'Disposable' token to control the listener's life force
+    private var listenerDisposable: Disposable? = null
+    private var isRegistered = false
+
+    val currentMergeFix = java.util.WeakHashMap<Editor, GhostSanitizer.MergeResult>()
+    val currentInlays = java.util.WeakHashMap<Editor, Inlay<*>>()
+
+    // --- THE LIGHT SWITCH (REMASTERED) ---
+
+    fun start() {
+        if (isRegistered) return
+
+        LOG.warn("👻 [AutoDev] I am waking up... Creating new listener lifecycle.")
+
+        // 1. Create a new "Life" for this listener session
+        val newDisposable = Disposer.newDisposable("AutoDevListener")
+        listenerDisposable = newDisposable
+
+        // 2. Register the listener attached to this disposable.
+        // When we dispose 'newDisposable', IntelliJ automatically unhooks the listener. Magic.
+        EditorFactory.getInstance().addEditorFactoryListener(this, newDisposable)
+
+        // 3. Hook into EXISTING editors (The "Chicken and Egg" Fix)
+        val openEditors = EditorFactory.getInstance().allEditors
+        for (editor in openEditors) {
+            LOG.warn("👻 [AutoDev] Found open editor: ${editor.document}. Hooking in.")
+            hookIntoEditor(editor)
+        }
+
+        isRegistered = true
     }
 
-    override fun editorCreated(event: EditorFactoryEvent) {
-        val editor = event.editor
+    fun stop() {
+        if (!isRegistered) return
+
+        LOG.warn("💤 [AutoDev] I am going to sleep... Killing listener.")
+
+        // Instead of 'removeListener', we just Dispose the parent.
+        listenerDisposable?.let {
+            Disposer.dispose(it)
+            listenerDisposable = null
+        }
+
+        // Cleanup the paint
+        val editors = EditorFactory.getInstance().allEditors
+        for (editor in editors) {
+            resetSuggestion(editor)
+        }
+        isRegistered = false
+    }
+
+    // --- LISTENER LOGIC ---
+
+    private fun hookIntoEditor(editor: Editor) {
         editor.document.addDocumentListener(object : DocumentListener {
             override fun documentChanged(event: DocumentEvent) {
                 resetSuggestion(editor)
@@ -34,12 +86,22 @@ class AutoDevManager : EditorFactoryListener {
         })
     }
 
+    override fun editorCreated(event: EditorFactoryEvent) {
+        hookIntoEditor(event.editor)
+    }
+
     override fun editorReleased(event: EditorFactoryEvent) = resetSuggestion(event.editor)
 
     private fun fetchSuggestion(editor: Editor) {
         ApplicationManager.getApplication().executeOnPooledThread {
             val settings = AppSettingsState.getInstance()
-            if (settings.apiKey.isBlank()) return@executeOnPooledThread
+
+            if (!settings.enableGhostText) return@executeOnPooledThread
+
+            if (settings.apiKey.isBlank()) {
+                LOG.warn("⚠️ [AutoDev] API Key is MISSING. Please check settings.")
+                return@executeOnPooledThread
+            }
 
             var fullContext = ""
             var currentLinePrefix = ""
@@ -50,15 +112,12 @@ class AutoDevManager : EditorFactoryListener {
                 val offset = editor.caretModel.offset
                 val text = editor.document.text
 
-                // 1. Context
                 val start = (offset - 2500).coerceAtLeast(0)
                 fullContext = text.substring(start, offset)
 
-                // 2. Prefix (Trimmed line is safest for Sanitizer)
                 val lineStart = editor.document.getLineStartOffset(editor.caretModel.logicalPosition.line)
                 currentLinePrefix = text.substring(lineStart, offset).trim()
 
-                // 3. Suffix
                 val suffixEnd = (offset + 1000).coerceAtMost(text.length)
                 suffix = text.substring(offset, suffixEnd)
 
@@ -74,23 +133,21 @@ class AutoDevManager : EditorFactoryListener {
                     else -> Provider.OPENAI
                 }
 
-                println("[AutoDev] 🚀 Requesting completion from ${provider.name}...")
+                LOG.warn("🚀 [AutoDev] Requesting completion from ${provider.name}...")
                 val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix)
 
                 if (rawSuggestion.isNotBlank()) {
-                    // FIX: Pass the FULL trimmed line.
-                    // The Sanitizer is now smart enough to handle "System.out.println" without deleting it.
                     val fix = GhostSanitizer.sanitize(currentLinePrefix, suffix, rawSuggestion)
 
                     if (fix.textToInsert.isNotBlank()) {
-                        println("[AutoDev] ✅ Ghost Text Ready: '${fix.textToInsert}'")
+                        LOG.warn("✅ [AutoDev] Ghost Text Ready: '${fix.textToInsert}'")
                         ApplicationManager.getApplication().invokeLater {
                             renderGhostText(editor, fix)
                         }
                     }
                 }
             } catch (e: Exception) {
-                println("[AutoDev] 💥 API Error: ${e.message}")
+                LOG.warn("[AutoDev] 💥 API Error: ${e.message}")
             }
         }
     }
@@ -100,8 +157,14 @@ class AutoDevManager : EditorFactoryListener {
         resetSuggestion(editor)
         currentMergeFix[editor] = fix
         val offset = editor.caretModel.offset
-        val inlay = editor.inlayModel.addInlineElement(offset, GhostInlayRenderer(fix.textToInsert))
-        if (inlay != null) currentInlays[editor] = inlay
+
+        try {
+            val inlay = editor.inlayModel.addInlineElement(offset, GhostInlayRenderer(fix.textToInsert))
+            if (inlay != null) currentInlays[editor] = inlay
+        } catch (ignored: Exception) {
+            // I renamed 'e' to 'ignored' so the compiler stops yelling at me.
+            // Sometimes the editor closes while I am painting. It happens.
+        }
     }
 
     fun resetSuggestion(editor: Editor) {
@@ -178,7 +241,7 @@ class AutoDevManager : EditorFactoryListener {
 
         if (conn.responseCode != 200) {
             val error = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "Unknown"
-            println("[AutoDev] API Error ${conn.responseCode}: $error")
+            LOG.warn("[AutoDev] API Error ${conn.responseCode}: $error")
             return ""
         }
 

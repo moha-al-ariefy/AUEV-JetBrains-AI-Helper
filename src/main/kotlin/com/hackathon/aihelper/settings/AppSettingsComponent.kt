@@ -1,5 +1,6 @@
 package com.hackathon.aihelper.settings
 
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
@@ -12,6 +13,10 @@ class AppSettingsComponent {
     val panel: JPanel
     private val apiKeyField = JBTextField()
     private val modelField = JBTextField()
+
+    // Checkboxes for the new powers
+    private val enableGhostTextCheckbox = JBCheckBox("Enable Ghost Text (The spectral pair programmer)")
+    private val paranoidModeCheckbox = JBCheckBox("Paranoid Mode (Inject OWASP guidelines - Coming Soon)")
 
     init {
         // Smart Auto-Detect Logic
@@ -44,6 +49,9 @@ class AppSettingsComponent {
         panel = FormBuilder.createFormBuilder()
             .addLabeledComponent(JBLabel("API Key (OpenAI / Anthropic / Groq):"), apiKeyField, 1, false)
             .addLabeledComponent(JBLabel("Model Name (Auto-Detected):"), modelField, 1, false)
+            .addSeparator() // Make it look fancy
+            .addComponent(enableGhostTextCheckbox, 1)
+            .addComponent(paranoidModeCheckbox, 1)
             .addComponentFillVertically(JPanel(), 0)
             .panel
     }
@@ -57,4 +65,13 @@ class AppSettingsComponent {
     var modelName: String
         get() = modelField.text
         set(newText) { modelField.text = newText }
+
+    // Getters and Setters for the checkboxes
+    var enableGhostText: Boolean
+        get() = enableGhostTextCheckbox.isSelected
+        set(newStatus) { enableGhostTextCheckbox.isSelected = newStatus }
+
+    var paranoidMode: Boolean
+        get() = paranoidModeCheckbox.isSelected
+        set(newStatus) { paranoidModeCheckbox.isSelected = newStatus }
 }

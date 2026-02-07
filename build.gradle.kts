@@ -2,13 +2,17 @@ plugins {
     id("java")
     id("org.jetbrains.kotlin.jvm") version "1.9.21"
     id("org.jetbrains.intellij") version "1.17.3"
+    // I added this! This invokes the spirit of Compose.
+    id("org.jetbrains.compose") version "1.5.11"
 }
 
 group = "com.hackathon"
-version = "1.0-SNAPSHOT"
+version = "0.5b-BETA"
 
 repositories {
     mavenCentral()
+    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+    google()
 }
 
 intellij {
@@ -16,14 +20,17 @@ intellij {
     type.set("IC")
 }
 
+dependencies {
+    // I need these to draw pretty rectangles
+    implementation(compose.desktop.currentOs)
+}
+
 tasks {
-    // 1. Force Java to use version 17
     withType<JavaCompile> {
         sourceCompatibility = "17"
         targetCompatibility = "17"
     }
 
-    // 2. Force Kotlin to use version 17
     withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile> {
         kotlinOptions.jvmTarget = "17"
     }

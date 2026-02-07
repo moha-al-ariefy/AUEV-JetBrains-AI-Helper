@@ -1,284 +1,542 @@
 package com.hackathon.aihelper.ui
 
+import androidx.compose.foundation.*
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.awt.ComposePanel
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.*
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.hackathon.aihelper.settings.AppSettingsState
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
-import com.intellij.ui.JBColor
-import com.intellij.ui.components.JBScrollPane
-import com.intellij.ui.components.JBTextArea
-import com.intellij.ui.content.ContentFactory
-import com.intellij.util.ui.JBUI
-import java.awt.*
-import java.awt.event.ComponentAdapter
-import java.awt.event.ComponentEvent
-import javax.swing.*
+import java.awt.Cursor
+import java.awt.Toolkit
+import java.awt.datatransfer.StringSelection
 
 class AIChatToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val myToolWindow = AIChatPanel(project)
-        val contentFactory = ContentFactory.getInstance()
-        val content = contentFactory.createContent(myToolWindow.getContent(), "", false)
-        toolWindow.contentManager.addContent(content)
-    }
-}
-
-class AIChatPanel(private val project: Project) {
-
-    private val mainPanel = JPanel(BorderLayout())
-    private val cardLayout = CardLayout()
-    private val contentPanel = JPanel(cardLayout) // Swaps between Chat and Config
-
-    // Chat View Components
-    private val chatView = JPanel(BorderLayout())
-    private val chatHistoryPanel = JPanel(GridBagLayout())
-    private val conversationHistory = StringBuilder()
-    private val modelSelector = JComboBox(arrayOf("gpt-4o", "gpt-3.5-turbo", "o1-mini"))
-    private val inputArea = JBTextArea().apply {
-        lineWrap = true
-        wrapStyleWord = true
-        border = JBUI.Borders.empty(5)
-        emptyText.text = "Ask AI to modify code..."
-    }
-
-    // Config View Components
-    private val configView = JPanel(GridBagLayout())
-    private val apiKeyField = JTextField(25)
-
-    private lateinit var scrollPane: JBScrollPane
-
-    init {
-        setupChatUI()
-        setupConfigUI()
-
-        contentPanel.add(chatView, "CHAT")
-        contentPanel.add(configView, "CONFIG")
-        mainPanel.add(contentPanel, BorderLayout.CENTER)
-
-        // --- INITIAL STATE CHECK ---
-        val settings = AppSettingsState.getInstance()
-        if (settings.apiKey.isBlank()) {
-            cardLayout.show(contentPanel, "CONFIG")
-        } else {
-            modelSelector.selectedItem = settings.modelName
-            cardLayout.show(contentPanel, "CHAT")
-        }
-
-        mainPanel.addComponentListener(object : ComponentAdapter() {
-            override fun componentResized(e: ComponentEvent?) {
-                chatHistoryPanel.revalidate()
-                chatHistoryPanel.repaint()
-            }
-        })
-    }
-
-    private fun setupChatUI() {
-        // 1. TOP BAR (Model Selector + Settings Icon)
-        val topBar = JPanel(BorderLayout())
-        topBar.border = JBUI.Borders.customLine(JBColor.border(), 0, 0, 1, 0)
-
-        val modelPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 5))
-        modelPanel.add(JLabel("Model:"))
-        modelSelector.addActionListener {
-            AppSettingsState.getInstance().modelName = modelSelector.selectedItem as String
-        }
-        modelPanel.add(modelSelector)
-
-        val settingsBtn = JButton("⚙️").apply {
-            toolTipText = "API Settings"
-            isBorderPainted = false
-            isContentAreaFilled = false
-            addActionListener {
-                apiKeyField.text = AppSettingsState.getInstance().apiKey
-                cardLayout.show(contentPanel, "CONFIG")
-            }
-        }
-
-        topBar.add(modelPanel, BorderLayout.WEST)
-        topBar.add(settingsBtn, BorderLayout.EAST)
-        chatView.add(topBar, BorderLayout.NORTH)
-
-        // 2. CHAT HISTORY
-        val verticalWrapper = JPanel(BorderLayout())
-        verticalWrapper.add(chatHistoryPanel, BorderLayout.NORTH)
-        scrollPane = JBScrollPane(verticalWrapper)
-        scrollPane.border = null
-        scrollPane.verticalScrollBar.unitIncrement = 16
-        chatView.add(scrollPane, BorderLayout.CENTER)
-
-        // 3. BOTTOM CONTROLS
-        val bottomPanel = JPanel(BorderLayout())
-        bottomPanel.border = JBUI.Borders.empty(10)
-
-        val inputScroll = JBScrollPane(inputArea).apply {
-            preferredSize = Dimension(0, 80)
-            border = BorderFactory.createLineBorder(JBColor.border())
-        }
-
-        val btnPanel = JPanel(FlowLayout(FlowLayout.RIGHT))
-        val auditBtn = JButton("🛡️ Audit").apply { addActionListener { runAudit() } }
-        val sendBtn = JButton("Send").apply { addActionListener { sendMessage() } }
-
-        btnPanel.add(auditBtn)
-        btnPanel.add(sendBtn)
-        bottomPanel.add(inputScroll, BorderLayout.CENTER)
-        bottomPanel.add(btnPanel, BorderLayout.SOUTH)
-        chatView.add(bottomPanel, BorderLayout.SOUTH)
-
-        addAiMessage("Hello! I am ready to help.")
-    }
-
-    private fun setupConfigUI() {
-        configView.border = JBUI.Borders.empty(20)
-        val gbc = GridBagConstraints().apply {
-            gridx = 0; gridy = 0; insets = JBUI.insets(10); anchor = GridBagConstraints.CENTER
-        }
-
-        val title = JLabel("AI Configuration").apply {
-            font = Font("JetBrains Mono", Font.BOLD, 16)
-        }
-        configView.add(title, gbc)
-
-        gbc.gridy++
-        configView.add(JLabel("OpenAI API Key:"), gbc)
-
-        gbc.gridy++
-        configView.add(apiKeyField, gbc)
-
-        gbc.gridy++
-        val saveBtn = JButton("Save & Open Chat").apply {
-            addActionListener {
-                val key = apiKeyField.text.trim()
-                if (key.isNotEmpty()) {
-                    val state = AppSettingsState.getInstance()
-                    state.apiKey = key
-                    if (state.modelName.isBlank()) state.modelName = "gpt-4o"
-                    cardLayout.show(contentPanel, "CHAT")
+        val content = ComposePanel().apply {
+            setContent {
+                // I tried to match the Copilot dark theme. It looks slick.
+                MaterialTheme(
+                    colors = darkColors(
+                        primary = Color(0xFF2F80ED),      // Copilot Blue
+                        background = Color(0xFF1E1E1E),   // Deep Dark
+                        surface = Color(0xFF252526),      // VS Code-ish Panel
+                        onSurface = Color(0xFFCCCCCC)     // Text
+                    )
+                ) {
+                    MainScreen(project)
                 }
             }
         }
-        configView.add(saveBtn, gbc)
+        toolWindow.contentManager.addContent(
+            toolWindow.contentManager.factory.createContent(content, "", false)
+        )
+    }
+}
+
+enum class Screen { CHAT, SETTINGS }
+
+// I added 'isApplied' state so we can track if the user clicked the button
+data class ChatMessage(
+    val id: Long = System.currentTimeMillis(),
+    val text: String,
+    val isUser: Boolean,
+    val isCodeAction: Boolean = false,
+    var isApplied: MutableState<Boolean> = mutableStateOf(false)
+)
+
+val LocalFontSize = compositionLocalOf { mutableStateOf(13) }
+
+@Composable
+fun MainScreen(project: Project) {
+    var currentScreen by remember { mutableStateOf(Screen.CHAT) }
+    // I am using a snapshot state list so the UI actually updates when I add stuff
+    val messages = remember { mutableStateListOf<ChatMessage>() }
+    val fontSizeState = remember { mutableStateOf(AppSettingsState.getInstance().chatFontSize) }
+
+    LaunchedEffect(Unit) {
+        if (messages.isEmpty()) {
+            messages.add(ChatMessage(text = "Hello! I am AUEV. Ready to code safely.", isUser = false))
+        }
     }
 
-    // --- LOGIC METHODS (Preserved from your code) ---
+    CompositionLocalProvider(LocalFontSize provides fontSizeState) {
+        when (currentScreen) {
+            Screen.CHAT -> ChatView(
+                project = project,
+                messages = messages,
+                onNavigateSettings = { currentScreen = Screen.SETTINGS }
+            )
+            // I reused the old settings view because I was too lazy to rewrite it
+            Screen.SETTINGS -> SettingsView(
+                onBack = { currentScreen = Screen.CHAT }
+            )
+        }
+    }
+}
 
-    private fun sendMessage() {
-        val text = inputArea.text.trim()
-        if (text.isEmpty()) return
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun ChatView(
+    project: Project,
+    messages: MutableList<ChatMessage>,
+    onNavigateSettings: () -> Unit
+) {
+    var inputText by remember { mutableStateOf("") }
+    var selectedModel by remember { mutableStateOf(AppSettingsState.getInstance().modelName.ifBlank { "gpt-4o" }) }
+    var isLoading by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
 
-        addUserMessage(text)
-        inputArea.text = ""
-        val thinkingPanel = addAiMessage("Thinking...")
+    // If I don't auto-scroll, the user has to scroll manually like a peasant
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
+    }
 
-        val fullPromptWithMemory = "$conversationHistory\nUser: $text".trimIndent()
-        conversationHistory.append("\nUser: $text")
+    Column(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1E1E))) {
 
-        ChatService.sendMessage(project, fullPromptWithMemory) { response ->
-            chatHistoryPanel.remove(thinkingPanel)
-            conversationHistory.append("\nAI: $response")
+        // --- TOP BAR (Minimalist) ---
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .background(Color(0xFF252526))
+                .padding(horizontal = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("AUEV Assistant", fontWeight = FontWeight.Bold, color = Color.Gray, fontSize = 12.sp)
+            IconButton(
+                onClick = onNavigateSettings,
+                modifier = Modifier.size(24.dp).pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+            ) {
+                Text("⚙", fontSize = 14.sp, color = Color.Gray)
+            }
+        }
 
-            if (response.contains("class ") || response.contains("fun ") ||
-                response.contains("def ") || response.contains("public ")) {
-                addCodeProposal(response)
+        Divider(color = Color(0xFF333333))
+
+        // --- CHAT HISTORY ---
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+            contentPadding = PaddingValues(vertical = 10.dp)
+        ) {
+            items(messages) { msg ->
+                CopilotMessageBubble(
+                    message = msg,
+                    project = project,
+                    onDiscard = { messages.remove(msg) }
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+            if (isLoading) {
+                item {
+                    Text(
+                        "Thinking...",
+                        color = Color.Gray,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(start = 16.dp, top = 8.dp)
+                    )
+                }
+            }
+        }
+
+        // --- BOTTOM INPUT AREA (The Floating Card Look) ---
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF1E1E1E))
+                .padding(12.dp)
+        ) {
+            // The Input Box
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .border(1.dp, Color(0xFF3E3E42), RoundedCornerShape(8.dp))
+                    .background(Color(0xFF252526), RoundedCornerShape(8.dp))
+                    .padding(8.dp)
+            ) {
+                BasicTextField(
+                    value = inputText,
+                    onValueChange = { inputText = it },
+                    textStyle = TextStyle(
+                        color = Color(0xFFE1E1E1),
+                        fontFamily = FontFamily.SansSerif,
+                        fontSize = 13.sp
+                    ),
+                    cursorBrush = SolidColor(Color(0xFF2F80ED)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 24.dp, max = 200.dp) // Auto-grow like magic
+                        .onPreviewKeyEvent {
+                            // Logic: Enter = Send, Shift+Enter = New Line
+                            if (it.key == Key.Enter && it.type == KeyEventType.KeyDown) {
+                                if (it.isShiftPressed) {
+                                    false // Allow default newline
+                                } else {
+                                    if (inputText.isNotBlank()) {
+                                        val prompt = inputText
+                                        messages.add(ChatMessage(text = prompt, isUser = true))
+                                        inputText = ""
+                                        isLoading = true
+                                        ChatService.sendMessage(project, prompt) { response ->
+                                            isLoading = false
+                                            // Simple heuristic: if it has curlies, it's probably code
+                                            val isCode = response.contains("```") || response.contains("class ") || response.contains("fun ")
+                                            messages.add(ChatMessage(text = response, isUser = false, isCodeAction = isCode))
+                                        }
+                                    }
+                                    true // Consumed
+                                }
+                            } else {
+                                false
+                            }
+                        }
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Toolbar Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Left: Model & Audit
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ModelPill(selectedModel) {
+                            selectedModel = it
+                            AppSettingsState.getInstance().modelName = it
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        // Audit Button
+                        IconTextButton(
+                            text = "🛡️ Audit",
+                            onClick = {
+                                messages.add(ChatMessage(text = "Running Security Audit...", isUser = true))
+                                isLoading = true
+                                ChatService.runAudit(project) { response ->
+                                    isLoading = false
+                                    messages.add(ChatMessage(text = response, isUser = false, isCodeAction = false))
+                                }
+                            }
+                        )
+                    }
+
+                    // Right: Send Button
+                    IconTextButton(
+                        text = "Send ⏎",
+                        color = Color(0xFF2F80ED),
+                        onClick = {
+                            if (inputText.isNotBlank()) {
+                                val prompt = inputText
+                                messages.add(ChatMessage(text = prompt, isUser = true))
+                                inputText = ""
+                                isLoading = true
+                                ChatService.sendMessage(project, prompt) { response ->
+                                    isLoading = false
+                                    val isCode = response.contains("```") || response.contains("class ")
+                                    messages.add(ChatMessage(text = response, isUser = false, isCodeAction = isCode))
+                                }
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun CopilotMessageBubble(message: ChatMessage, project: Project, onDiscard: () -> Unit) {
+    val fontSize = LocalFontSize.current.value.sp
+    val isUser = message.isUser
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        // Avatar for Bot
+        if (!isUser) {
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF2F80ED)), // Bot Blue
+                contentAlignment = Alignment.Center
+            ) {
+                Text("AI", color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+        }
+
+        // Content Body
+        Column(modifier = Modifier.widthIn(max = 650.dp)) {
+            // Name Tag
+            if (!isUser) {
+                Text("AUEV", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Spacer(modifier = Modifier.height(4.dp))
+            }
+
+            if (message.isCodeAction) {
+                // --- CODE CARD ---
+                // I tried to make this look like the VS Code markdown block
+                Card(
+                    shape = RoundedCornerShape(6.dp),
+                    backgroundColor = Color(0xFF1E1E1E), // Darker than chat
+                    border = BorderStroke(1.dp, Color(0xFF333333)),
+                    elevation = 0.dp
+                ) {
+                    Column {
+                        // Header
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF2D2D2D))
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Kotlin", color = Color.Gray, fontSize = 11.sp)
+                            Text(
+                                "Copy",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .clickable {
+                                        // Java Swing Clipboard voodoo
+                                        val selection = StringSelection(ChatService.cleanMarkdown(message.text))
+                                        Toolkit.getDefaultToolkit().systemClipboard.setContents(selection, selection)
+                                    }
+                                    .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+                            )
+                        }
+
+                        // Code Content
+                        SelectionContainer {
+                            Text(
+                                text = ChatService.cleanMarkdown(message.text),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = fontSize,
+                                color = Color(0xFFCE9178), // VS Code String color-ish
+                                modifier = Modifier.padding(12.dp)
+                            )
+                        }
+
+                        Divider(color = Color(0xFF333333))
+
+                        // Action Footer
+                        // I added logic here: If applied, show UNDO. If not, show APPLY.
+                        Row(modifier = Modifier.padding(4.dp)) {
+                            if (!message.isApplied.value) {
+                                Button(
+                                    onClick = {
+                                        ChatService.applyCodeToCurrentFile(project, message.text)
+                                        message.isApplied.value = true
+                                    },
+                                    colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF2F80ED)), // Blue
+                                    modifier = Modifier.weight(1f).height(30.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("Apply Code", color = Color.White, fontSize = 12.sp)
+                                }
+                            } else {
+                                Button(
+                                    onClick = {
+                                        ChatService.undoLastAction(project)
+                                        message.isApplied.value = false
+                                    },
+                                    colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFFD32F2F)), // Red
+                                    modifier = Modifier.weight(1f).height(30.dp),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Text("Undo Changes", color = Color.White, fontSize = 12.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            // Reject Button
+                            OutlinedButton(
+                                onClick = onDiscard,
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Gray),
+                                border = BorderStroke(1.dp, Color.Gray),
+                                modifier = Modifier.weight(0.5f).height(30.dp),
+                                contentPadding = PaddingValues(0.dp)
+                            ) {
+                                Text("Discard", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
             } else {
-                addAiMessage(response)
-            }
-            refreshUI()
-        }
-    }
-
-    private fun runAudit() {
-        val thinking = addAiMessage("🔍 Running Security Audit...")
-        ChatService.runAudit(project) { response ->
-            chatHistoryPanel.remove(thinking)
-            addAiMessage("🛡️ **Audit Report:**\n$response")
-            refreshUI()
-        }
-    }
-
-    private fun addUserMessage(text: String) {
-        val bubble = createBubbleTextArea(text, JBColor(Color(220, 240, 255), Color(50, 80, 120)))
-        val constraints = GridBagConstraints().apply {
-            gridx = 0; gridwidth = GridBagConstraints.REMAINDER; weightx = 1.0
-            fill = GridBagConstraints.HORIZONTAL; anchor = GridBagConstraints.EAST
-            insets = JBUI.insets(5, 50, 5, 5)
-        }
-        chatHistoryPanel.add(bubble, constraints)
-        refreshUI()
-    }
-
-    private fun addAiMessage(text: String): JPanel {
-        val bubble = createBubbleTextArea(text, JBColor(Color(240, 240, 240), Color(60, 63, 65)))
-        val constraints = GridBagConstraints().apply {
-            gridx = 0; gridwidth = GridBagConstraints.REMAINDER; weightx = 1.0
-            fill = GridBagConstraints.HORIZONTAL; anchor = GridBagConstraints.WEST
-            insets = JBUI.insets(5, 5, 5, 50)
-        }
-        chatHistoryPanel.add(bubble, constraints)
-        refreshUI()
-        return bubble
-    }
-
-    private fun createBubbleTextArea(text: String, bgColor: Color): JPanel {
-        val wrapper = JPanel(BorderLayout()).apply { isOpaque = false }
-        val textArea = JTextArea(text).apply {
-            isEditable = false; isOpaque = true; background = bgColor
-            font = Font("JetBrains Mono", Font.PLAIN, 12)
-            border = BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(JBColor.border(), 1, true),
-                JBUI.Borders.empty(10)
-            )
-            lineWrap = true; wrapStyleWord = true
-        }
-        wrapper.add(textArea, BorderLayout.CENTER)
-        return wrapper
-    }
-
-    private fun addCodeProposal(rawCode: String) {
-        val displayCode = ChatService.cleanMarkdown(rawCode)
-        val cardPanel = JPanel(BorderLayout()).apply {
-            border = BorderFactory.createCompoundBorder(
-                JBUI.Borders.empty(10, 5, 10, 5),
-                BorderFactory.createLineBorder(JBColor.border(), 1, true)
-            )
-            background = JBColor(Color(250, 250, 250), Color(43, 43, 43))
-        }
-
-        val codePreview = JTextArea(displayCode.take(500) + "...").apply {
-            isEditable = false; font = Font("JetBrains Mono", Font.PLAIN, 11)
-            background = JBColor(Color(255, 255, 255), Color(30, 30, 30))
-            border = JBUI.Borders.empty(5)
-        }
-
-        val applyBtn = JButton("✅ Apply").apply {
-            addActionListener {
-                ChatService.applyCodeToCurrentFile(project, rawCode)
-                cardPanel.removeAll()
-                cardPanel.add(JLabel("✅ Code Applied"), BorderLayout.CENTER)
-                refreshUI()
-            }
-        }
-
-        cardPanel.add(codePreview, BorderLayout.CENTER)
-        cardPanel.add(applyBtn, BorderLayout.SOUTH)
-
-        val constraints = GridBagConstraints().apply {
-            gridx = 0; gridwidth = GridBagConstraints.REMAINDER; weightx = 1.0
-            fill = GridBagConstraints.HORIZONTAL; insets = JBUI.insets(5)
-        }
-        chatHistoryPanel.add(cardPanel, constraints)
-        refreshUI()
-    }
-
-    private fun refreshUI() {
-        chatHistoryPanel.revalidate()
-        chatHistoryPanel.repaint()
-        SwingUtilities.invokeLater {
-            if (::scrollPane.isInitialized) {
-                scrollPane.verticalScrollBar.value = scrollPane.verticalScrollBar.maximum
+                // --- PLAIN TEXT ---
+                // User messages get a background, AI messages are transparent text
+                if (isUser) {
+                    Surface(
+                        color = Color(0xFF2B313A), // Subtle Blue tint
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    ) {
+                        Text(
+                            text = message.text,
+                            color = Color(0xFFE1E1E1),
+                            fontSize = fontSize,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                } else {
+                    SelectionContainer {
+                        Text(
+                            text = message.text,
+                            color = Color(0xFFCCCCCC),
+                            fontSize = fontSize,
+                            lineHeight = (fontSize.value * 1.5).sp
+                        )
+                    }
+                }
             }
         }
     }
+}
 
-    fun getContent() = mainPanel
+// --- MICRO COMPONENTS ---
+
+@Composable
+fun ModelPill(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val items = listOf("gpt-4o", "claude-3-5-sonnet", "llama-3.3-70b-versatile")
+
+    Box {
+        Surface(
+            color = Color(0xFF333333),
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .clickable { expanded = true }
+                .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+        ) {
+            Row(modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(selected, color = Color.White, fontSize = 10.sp)
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("▾", color = Color.Gray, fontSize = 10.sp)
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.background(Color(0xFF252526))
+        ) {
+            items.forEach { label ->
+                DropdownMenuItem(onClick = {
+                    onSelect(label)
+                    expanded = false
+                }) {
+                    Text(label, color = Color.White, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun IconTextButton(text: String, color: Color = Color.Gray, onClick: () -> Unit) {
+    Text(
+        text = text,
+        color = color,
+        fontSize = 12.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(4.dp)
+            .pointerHoverIcon(PointerIcon(Cursor(Cursor.HAND_CURSOR)))
+    )
+}
+
+// Copied this from the old file to make sure Settings still renders
+@Composable
+fun SettingsView(onBack: () -> Unit) {
+    val settings = AppSettingsState.getInstance()
+    var apiKey by remember { mutableStateOf(settings.apiKey) }
+    var enableGhost by remember { mutableStateOf(settings.enableGhostText) }
+    var enableParanoid by remember { mutableStateOf(settings.paranoidMode) }
+    var fontSize by remember { mutableStateOf(settings.chatFontSize) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1E1E1E))
+            .padding(16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("←", color = Color.White, modifier = Modifier.clickable { onBack() }.padding(end = 8.dp))
+            Text("Settings", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+
+        Divider(color = Color.Gray, modifier = Modifier.padding(vertical = 12.dp))
+
+        // API Key
+        Text("API Key", color = Color.Gray, fontSize = 11.sp)
+        BasicTextField(
+            value = apiKey,
+            onValueChange = { apiKey = it },
+            singleLine = true,
+            textStyle = TextStyle(color = Color.White, fontSize = 12.sp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(Color(0xFF252526), RoundedCornerShape(4.dp))
+                .border(1.dp, Color(0xFF4E5155), RoundedCornerShape(4.dp))
+                .padding(8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Toggles
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = enableGhost, onCheckedChange = { enableGhost = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2F80ED)))
+            Text("Enable Ghost Text", color = Color(0xFFBBBBBB), fontSize = 13.sp)
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = enableParanoid, onCheckedChange = { enableParanoid = it }, colors = CheckboxDefaults.colors(checkedColor = Color(0xFF2F80ED)))
+            Text("Paranoid Mode", color = Color(0xFFBBBBBB), fontSize = 13.sp)
+        }
+
+        Spacer(modifier = Modifier.weight(1f))
+
+        Button(
+            onClick = {
+                settings.apiKey = apiKey
+                settings.enableGhostText = enableGhost
+                settings.paranoidMode = enableParanoid
+                if (enableGhost) com.hackathon.aihelper.AutoDevManager.start() else com.hackathon.aihelper.AutoDevManager.stop()
+                onBack()
+            },
+            colors = ButtonDefaults.buttonColors(backgroundColor = Color(0xFF2F80ED))
+        ) {
+            Text("Save & Exit", color = Color.White)
+        }
+    }
 }

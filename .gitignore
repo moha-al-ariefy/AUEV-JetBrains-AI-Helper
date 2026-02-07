@@ -8,3 +8,6 @@ gradle/wrapper/gradle-wrapper.jar
 
 PluginConfig.kt
 **/PluginConfig.kt
+
+repomix-outputkeep.xml
+repomix-outputfix1.xml

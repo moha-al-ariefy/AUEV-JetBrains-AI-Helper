@@ -1,6 +1,6 @@
 package com.hackathon.aihelper
 
-import com.hackathon.aihelper.AutoDevManager.Companion.currentMergeFix
+import com.intellij.openapi.actionSystem.ActionUpdateThread
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
@@ -10,12 +10,19 @@ import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.codeStyle.CodeStyleManager
 
 class ApplyGhostAction : AnAction() {
+
+    // I added this so IntelliJ stops screaming "SEVERE" in the logs.
+    // We need to run on the EDT (UI thread) because we are looking at the Editor object.
+    override fun getActionUpdateThread(): ActionUpdateThread {
+        return ActionUpdateThread.EDT
+    }
+
     override fun actionPerformed(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR) ?: return
         val project = e.project ?: return
 
-        // 1. Get instructions
-        val fix = currentMergeFix[editor] ?: return
+        // 1. Get instructions (Directly from the Singleton now!)
+        val fix = AutoDevManager.currentMergeFix[editor] ?: return
 
         if (fix.textToInsert.isNotEmpty()) {
             // "Accept AI Suggestion" = The name you see in the Edit -> Undo menu
@@ -55,12 +62,14 @@ class ApplyGhostAction : AnAction() {
                 editor.scrollingModel.scrollToCaret(ScrollType.RELATIVE)
             })
 
-            AutoDevManager().resetSuggestion(editor)
+            // I reset the suggestion so it doesn't get stuck
+            AutoDevManager.resetSuggestion(editor)
         }
     }
 
     override fun update(e: AnActionEvent) {
         val editor = e.getData(CommonDataKeys.EDITOR)
-        e.presentation.isEnabled = editor != null && currentMergeFix.containsKey(editor)
+        // I fixed the reference here too
+        e.presentation.isEnabled = editor != null && AutoDevManager.currentMergeFix.containsKey(editor)
     }
 }

@@ -15,6 +15,12 @@ class AppSettingsState : PersistentStateComponent<AppSettingsState> {
     var apiKey: String = ""
     var modelName: String = "gpt-4o" // Default
 
+    // I added this switch because sometimes the ghost gets too clingy
+    var enableGhostText: Boolean = true
+
+    // Placeholder for when I get around to making the AI terrified of hackers
+    var paranoidMode: Boolean = false
+    var chatFontSize: Int = 13
     companion object {
         fun getInstance(): AppSettingsState {
             return ApplicationManager.getApplication().getService(AppSettingsState::class.java)
