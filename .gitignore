@@ -8,6 +8,7 @@ gradle/wrapper/gradle-wrapper.jar
 
 PluginConfig.kt
 **/PluginConfig.kt
-
+.intellijPlatform/
+repomix-output.xml
 repomix-outputkeep.xml
 repomix-outputfix1.xml
