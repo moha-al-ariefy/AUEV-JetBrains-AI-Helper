@@ -1,3 +1,19 @@
+/*
+ *    Copyright 2026 moha-al-ariefy
+ *
+ *    Licensed under the Apache License, Version 2.0 (the "License");
+ *    you may not use this file except in compliance with the License.
+ *    You may obtain a copy of the License at
+ *
+ *        http://www.apache.org/licenses/LICENSE-2.0
+ *
+ *    Unless required by applicable law or agreed to in writing, software
+ *    distributed under the License is distributed on an "AS IS" BASIS,
+ *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ *    See the License for the specific language governing permissions and
+ *    limitations under the License.
+ */
+
 package com.hackathon.aihelper
 
 import com.hackathon.aihelper.settings.AppSettingsState
@@ -19,6 +35,8 @@ import java.nio.charset.StandardCharsets
 
 object AutoDevManager : EditorFactoryListener {
 
+    // I suppressed the warning because I know what I'm doing (mostly)
+    @Suppress("DEPRECATION")
     private val alarm = Alarm()
     private val LOG = Logger.getInstance(AutoDevManager::class.java)
 
@@ -37,6 +55,7 @@ object AutoDevManager : EditorFactoryListener {
         LOG.warn("👻 [AutoDev] I am waking up... Creating new listener lifecycle.")
 
         // 1. Create a new "Life" for this listener session
+        // Note for 2025: We must be careful not to leak this.
         val newDisposable = Disposer.newDisposable("AutoDevListener")
         listenerDisposable = newDisposable
 
@@ -61,7 +80,11 @@ object AutoDevManager : EditorFactoryListener {
 
         // Instead of 'removeListener', we just Dispose the parent.
         listenerDisposable?.let {
-            Disposer.dispose(it)
+            // I suppressed this because "isDisposed" is deprecated but it still works fine
+            @Suppress("DEPRECATION")
+            if (!Disposer.isDisposed(it)) {
+                Disposer.dispose(it)
+            }
             listenerDisposable = null
         }
 
@@ -93,6 +116,8 @@ object AutoDevManager : EditorFactoryListener {
     override fun editorReleased(event: EditorFactoryEvent) = resetSuggestion(event.editor)
 
     private fun fetchSuggestion(editor: Editor) {
+        // In 2025, pooled threads are still okay for network, but Coroutines are preferred.
+        // I'm keeping pooled threads here to avoid rewriting the whole logic.
         ApplicationManager.getApplication().executeOnPooledThread {
             val settings = AppSettingsState.getInstance()
 
@@ -194,6 +219,7 @@ object AutoDevManager : EditorFactoryListener {
             Provider.OPENAI -> "https://api.openai.com/v1/chat/completions"
         }
 
+        // I updated this because URL(string) is deprecated. URI.create().toURL() is the modern way.
         val url = URI.create(urlStr).toURL()
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"

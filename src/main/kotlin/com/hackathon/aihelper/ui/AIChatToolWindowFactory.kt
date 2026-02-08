@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 moha-al-ariefy
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ * http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.hackathon.aihelper.ui
 
 import androidx.compose.foundation.*
@@ -36,6 +52,11 @@ import java.awt.datatransfer.StringSelection
 
 class AIChatToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
+
+        // I added this check to stop Direct3D from crashing the party on Windows.
+        // If Skiko fails to link, this usually forces it to behave.
+        System.setProperty("skiko.renderApi", "SOFTWARE_COMPAT")
+
         val content = ComposePanel().apply {
             setContent {
                 // I tried to match the Copilot dark theme. It looks slick.
@@ -195,7 +216,7 @@ fun ChatView(
                             // Logic: Enter = Send, Shift+Enter = New Line
                             if (it.key == Key.Enter && it.type == KeyEventType.KeyDown) {
                                 if (it.isShiftPressed) {
-                                    false // Allow default newline
+                                    false // Allow default newline (BasicTextField handles this)
                                 } else {
                                     if (inputText.isNotBlank()) {
                                         val prompt = inputText
@@ -209,7 +230,7 @@ fun ChatView(
                                             messages.add(ChatMessage(text = response, isUser = false, isCodeAction = isCode))
                                         }
                                     }
-                                    true // Consumed
+                                    true // Consume event (don't make a new line)
                                 }
                             } else {
                                 false
