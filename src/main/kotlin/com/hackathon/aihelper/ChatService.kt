@@ -23,7 +23,7 @@ import com.intellij.openapi.command.undo.UndoManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import java.net.HttpURLConnection
-import java.net.URL
+import java.net.URI // <--- Java 21 Friend
 import java.nio.charset.StandardCharsets
 import java.util.function.Consumer
 
@@ -33,7 +33,18 @@ object ChatService {
         get() = AppSettingsState.getInstance().apiKey
 
     private val model: String
-        get() = AppSettingsState.getInstance().modelName.ifBlank { "gpt-4o" }
+        get() = AppSettingsState.getInstance().modelName // I removed the default here so I can handle it smarter later
+
+    // I added this enum so the chat knows who it's talking to
+    private enum class Provider { OPENAI, ANTHROPIC, GROQ }
+
+    private fun getProvider(): Provider {
+        return when {
+            apiKey.startsWith("sk-ant-") -> Provider.ANTHROPIC
+            apiKey.startsWith("gsk_") -> Provider.GROQ
+            else -> Provider.OPENAI
+        }
+    }
 
     // --- CHAT LOGIC ---
     fun sendMessage(project: Project, userPrompt: String, onResponse: Consumer<String>) {
@@ -70,7 +81,8 @@ object ChatService {
 
                 val fullMessage = "Context:\n$currentCode\n\nUser Question: $userPrompt"
 
-                val response = callOpenAI(systemPrompt, fullMessage)
+                // Now I call the unified AI function
+                val response = callAI(systemPrompt, fullMessage)
 
                 ApplicationManager.getApplication().invokeLater {
                     onResponse.accept(response)
@@ -97,7 +109,9 @@ object ChatService {
             try {
                 // Security Audit Prompt remains strict
                 val prompt = "You are a Senior Security Engineer. Analyze this code for vulnerabilities (OWASP Top 10). Return a concise, prioritized list of issues and recommended fixes."
-                val response = callOpenAI(prompt, currentCode)
+
+                // I changed this to callAI so it works with Claude too
+                val response = callAI(prompt, currentCode)
 
                 ApplicationManager.getApplication().invokeLater {
                     onResponse.accept(response)
@@ -153,39 +167,85 @@ object ChatService {
     }
 
     // --- NETWORK ---
-    private fun callOpenAI(systemPrompt: String, userMessage: String): String {
-        val url = URL("[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)")
+    // I renamed this from callOpenAI to callAI because we are inclusive now
+    private fun callAI(systemPrompt: String, userMessage: String): String {
+        val provider = getProvider()
+
+        // I define the endpoints for everyone
+        val urlStr = when (provider) {
+            Provider.ANTHROPIC -> "https://api.anthropic.com/v1/messages"
+            Provider.GROQ -> "https://api.groq.com/openai/v1/chat/completions"
+            Provider.OPENAI -> "https://api.openai.com/v1/chat/completions"
+        }
+
+        // I added smart model selection because sending 'gpt-4o' to Groq is like asking for a Whopper at McDonald's
+        val actualModel = when {
+            // If it's Groq and the model is missing or set to the default OpenAI one, switch to Llama 3.3
+            provider == Provider.GROQ && (model.isBlank() || model.startsWith("gpt")) -> "llama-3.3-70b-versatile"
+            // If it's Anthropic, default to Claude 3.5
+            provider == Provider.ANTHROPIC && (model.isBlank() || model.startsWith("gpt")) -> "claude-3-5-sonnet-20240620"
+            // Default fallback
+            else -> model.ifBlank { "gpt-4o" }
+        }
+
+        // I used URI.create().toURL() because URL(string) is deprecated in Java 20+
+        val url = URI.create(urlStr).toURL()
         val conn = url.openConnection() as HttpURLConnection
         conn.requestMethod = "POST"
-        conn.setRequestProperty("Authorization", "Bearer $apiKey")
-        conn.setRequestProperty("Content-Type", "application/json")
         conn.doOutput = true
 
-        val jsonInput = """
+        // Headers vary by provider
+        if (provider == Provider.ANTHROPIC) {
+            conn.setRequestProperty("x-api-key", apiKey)
+            conn.setRequestProperty("anthropic-version", "2023-06-01")
+            conn.setRequestProperty("content-type", "application/json")
+        } else {
+            conn.setRequestProperty("Authorization", "Bearer $apiKey")
+            conn.setRequestProperty("Content-Type", "application/json")
+        }
+
+        // JSON Body Construction
+        // Anthropic hates "system" inside messages, so I have to treat it differently
+        val jsonInput = if (provider == Provider.ANTHROPIC) {
+            """
             {
-                "model": "$model",
+                "model": "$actualModel",
+                "max_tokens": 2000,
+                "system": "${escapeJson(systemPrompt)}",
+                "messages": [
+                    {"role": "user", "content": "${escapeJson(userMessage)}"}
+                ]
+            }
+            """.trimIndent()
+        } else {
+            """
+            {
+                "model": "$actualModel",
                 "messages": [
                     {"role": "system", "content": "${escapeJson(systemPrompt)}"},
                     {"role": "user", "content": "${escapeJson(userMessage)}"}
                 ],
                 "max_tokens": 2000
             }
-        """.trimIndent()
+            """.trimIndent()
+        }
 
         conn.outputStream.use { os -> os.write(jsonInput.toByteArray(StandardCharsets.UTF_8)) }
 
         if (conn.responseCode != 200) {
             val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
-            throw RuntimeException("API Error: $err")
+            throw RuntimeException("API Error (${conn.responseCode}): $err")
         }
 
-        return extractContent(conn.inputStream.bufferedReader().use { it.readText() })
+        val rawResponse = conn.inputStream.bufferedReader().use { it.readText() }
+        return extractContent(rawResponse, provider)
     }
 
     private fun escapeJson(text: String) = text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\t", "\\t")
 
-    private fun extractContent(json: String): String {
-        val startMarker = "\"content\": \""
+    private fun extractContent(json: String, provider: Provider): String {
+        // Anthropic returns "text": "...", OpenAI/Groq return "content": "..."
+        val startMarker = if (provider == Provider.ANTHROPIC) "\"text\": \"" else "\"content\": \""
         val start = json.indexOf(startMarker)
         if (start == -1) return "Error parsing response."
 
