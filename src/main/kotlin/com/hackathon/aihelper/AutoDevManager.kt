@@ -1,17 +1,17 @@
 /*
- *    Copyright 2026 moha-al-ariefy
+ * Copyright 2026 moha-al-ariefy
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *        http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.hackathon.aihelper
@@ -159,7 +159,15 @@ object AutoDevManager : EditorFactoryListener {
                 }
 
                 LOG.warn("🚀 [AutoDev] Requesting completion from ${provider.name}...")
-                val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix)
+                // I passed the paranoidMode setting to callAI so the ghost knows to behave
+                val rawSuggestion = callAI(provider, settings.apiKey, settings.modelName, fullContext, suffix, settings.paranoidMode)
+
+                // --- THE LOCAL HEURISTIC SHIELD ---
+                // I added this so we aren't liars on LinkedIn. If the AI hallucinates a secret, we snipe it locally.
+                if (containsSecrets(rawSuggestion)) {
+                    LOG.warn("🚨 [AutoDev] SECURITY TRIPWIRE: AI tried to leak a secret or hardcoded password. Ghost text blocked.")
+                    return@executeOnPooledThread
+                }
 
                 if (rawSuggestion.isNotBlank()) {
                     val fix = GhostSanitizer.sanitize(currentLinePrefix, suffix, rawSuggestion)
@@ -200,8 +208,8 @@ object AutoDevManager : EditorFactoryListener {
 
     enum class Provider { OPENAI, ANTHROPIC, GROQ }
 
-    private fun callAI(provider: Provider, apiKey: String, model: String, prefix: String, suffix: String): String {
-        val sysPrompt = """
+    private fun callAI(provider: Provider, apiKey: String, model: String, prefix: String, suffix: String, isParanoid: Boolean): String {
+        var sysPrompt = """
             You are a low-latency code completion engine.
             Complete the code at the [CURSOR] position.
             - Output ONLY the missing code. 
@@ -210,6 +218,16 @@ object AutoDevManager : EditorFactoryListener {
             - Maintain indentation.
             - If user typed a shortcut (e.g. 'sysout'), expand it fully.
         """.trimIndent()
+
+        // I added the paranoid mode rules for the ghost
+        if (isParanoid) {
+            sysPrompt += """
+                
+                🚨 SECURITY OVERRIDE: 
+                - DO NOT autocomplete or suggest insecure patterns (e.g., hardcoded credentials, SQL injection vulnerabilities, weak cryptography).
+                - If the context implies an insecure operation, return an empty string to refuse completion.
+            """.trimIndent()
+        }
 
         val userContent = "PREFIX:\n$prefix\n\n[CURSOR]\n\nSUFFIX:\n$suffix"
 
@@ -304,5 +322,20 @@ object AutoDevManager : EditorFactoryListener {
             i++
         }
         return sb.toString()
+    }
+
+    // --- SECURITY SCANNER ---
+
+    // I added this regex scanner to catch the LLM if it hallucinates someone's keys or obvious passwords.
+    // We check this BEFORE sending the ghost text to the editor.
+    private fun containsSecrets(text: String): Boolean {
+        val secretPatterns = listOf(
+            Regex("AKIA[0-9A-Z]{16}"), // AWS Access Key pattern
+            Regex("sk-[a-zA-Z0-9]{48}"), // Standard OpenAI Key pattern
+            Regex("sk-ant-[a-zA-Z0-9\\-_]+"), // Anthropic Key pattern
+            Regex("ghp_[a-zA-Z0-9]{36}"), // GitHub PAT pattern
+            Regex("(?i)(password|secret|token|api[_-]?key)[\"']?\\s*[:=]\\s*[\"'][a-zA-Z0-9_\\-@!#\$%^&*]{8,}[\"']") // Catch-all for hardcoded passwords/tokens
+        )
+        return secretPatterns.any { it.containsMatchIn(text) }
     }
 }

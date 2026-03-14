@@ -32,7 +32,7 @@ class AppSettingsComponent {
 
     // Checkboxes for the new powers
     private val enableGhostTextCheckbox = JBCheckBox("Enable Ghost Text (The spectral pair programmer)")
-    private val paranoidModeCheckbox = JBCheckBox("Paranoid Mode (Inject OWASP guidelines - Coming Soon)")
+    private val paranoidModeCheckbox = JBCheckBox("Paranoid Mode (Inject strict OWASP guidelines)")
 
     init {
         // Smart Auto-Detect Logic

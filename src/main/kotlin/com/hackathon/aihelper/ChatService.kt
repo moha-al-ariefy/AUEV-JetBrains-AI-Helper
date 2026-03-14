@@ -1,17 +1,17 @@
 /*
- *    Copyright 2026 moha-al-ariefy
+ * Copyright 2026 moha-al-ariefy
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *        http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.hackathon.aihelper.ui
@@ -34,6 +34,10 @@ object ChatService {
 
     private val model: String
         get() = AppSettingsState.getInstance().modelName // I removed the default here so I can handle it smarter later
+
+    // I added this so we can check if the user is in Paranoid Mode
+    private val isParanoidMode: Boolean
+        get() = AppSettingsState.getInstance().paranoidMode
 
     // I added this enum so the chat knows who it's talking to
     private enum class Provider { OPENAI, ANTHROPIC, GROQ }
@@ -60,7 +64,7 @@ object ChatService {
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 // FIXED: Professional, Senior-Level System Prompt
-                val systemPrompt = """
+                var systemPrompt = """
                     You are AUEV, an expert coding assistant integrated into IntelliJ IDEA.
                     
                     RULES FOR CHAT:
@@ -78,6 +82,20 @@ object ChatService {
                     
                     Current Context: File Type ($fileExtension).
                 """.trimIndent()
+
+                // I added this to inject Paranoid Mode OWASP Guidelines
+                if (isParanoidMode) {
+                    systemPrompt += """
+                        
+                        
+                        🚨 SECURITY OVERRIDE (PARANOID MODE ACTIVE):
+                        - STRICTLY adhere to OWASP Top 10 guidelines.
+                        - PREVENT all forms of Injection (SQL, Command, XSS) by enforcing parameterized queries and strict input sanitization.
+                        - NEVER output code containing hardcoded secrets, passwords, or vulnerable cryptographic algorithms (e.g., MD5, SHA-1).
+                        - ENFORCE safe deserialization, secure authentication, and proper access controls.
+                        - WARNING: If the user requests inherently insecure code, REFUSE the request, explain the security risk, and provide a secure alternative.
+                    """.trimIndent()
+                }
 
                 val fullMessage = "Context:\n$currentCode\n\nUser Question: $userPrompt"
 
@@ -173,9 +191,9 @@ object ChatService {
 
         // I define the endpoints for everyone
         val urlStr = when (provider) {
-            Provider.ANTHROPIC -> "https://api.anthropic.com/v1/messages"
-            Provider.GROQ -> "https://api.groq.com/openai/v1/chat/completions"
-            Provider.OPENAI -> "https://api.openai.com/v1/chat/completions"
+            Provider.ANTHROPIC -> "[https://api.anthropic.com/v1/messages](https://api.anthropic.com/v1/messages)"
+            Provider.GROQ -> "[https://api.groq.com/openai/v1/chat/completions](https://api.groq.com/openai/v1/chat/completions)"
+            Provider.OPENAI -> "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)"
         }
 
         // I added smart model selection because sending 'gpt-4o' to Groq is like asking for a Whopper at McDonald's

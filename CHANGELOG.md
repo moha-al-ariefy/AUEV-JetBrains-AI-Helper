@@ -2,12 +2,27 @@
 
 All notable changes to the **AUEV** project will be documented in this file.
 
+## [Beta 0.6] - 2026-03-14
+
+### 🚀 New Features (The "Security Guardian" Update)
+* **Local Secret Scanning:** Added an aggressive heuristic tripwire to `AutoDevManager`. The Ghost will now silently block suggestions containing hallucinated AWS keys, GitHub PATs, or OpenAI tokens before they hit the editor.
+* **Auto-Sanitization & Crypto Upgrades:** The `GhostSanitizer` now actively mutates insecure AI suggestions.
+  * *Upgrades:* Automatically rewrites weak crypto (MD5, SHA-1) to `SHA-256`.
+  * *Redacts:* Strips hardcoded passwords and tokens, replacing them with `[REDACTED BY AUEV]`.
+* **Strict Syntax Validation (The Spaghetti Filter):** `ApplyGhostAction` now hooks into IntelliJ's `PsiDocumentManager`.
+  * *Validation:* Parses the AST upon pressing `Tab`.
+  * *Rollback:* If the AI generates invalid syntax (`PsiErrorElement`), the plugin instantly deletes the garbage, restores your original prefix, and throws a UI warning shield.
+* **Paranoid Mode is LIVE:** The UI toggle is no longer a placebo. It actively injects strict OWASP Top 10 guidelines and anti-injection rules directly into the system prompts for both Ghost Text and Chat.
+
+
+---
+
 ## [Beta 0.5b] - 2026-02-08
 
 ### 🚀 New Features (The "I Did It" Update)
 * **Jetpack Compose UI:** Completely rewrote the Tool Window using **Compose for Desktop**.
   * **Modern Look:** Matte dark theme, flat buttons, and rounded message bubbles.
-  * **Dynamic Layout:**  chat and input area now resize perfectly.
+  * **Dynamic Layout:** chat and input area now resize perfectly.
   * **Settings Panel:** Integrated settings directly into the tool window (no more modal popups).
 * **Model Upgrade:** Updated Groq configuration to use **Llama 3.3 (70b Versatile)** by default.
 

@@ -1,17 +1,17 @@
 /*
- *    Copyright 2026 moha-al-ariefy
+ * Copyright 2026 moha-al-ariefy
  *
- *    Licensed under the Apache License, Version 2.0 (the "License");
- *    you may not use this file except in compliance with the License.
- *    You may obtain a copy of the License at
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *        http://www.apache.org/licenses/LICENSE-2.0
+ * http://www.apache.org/licenses/LICENSE-2.0
  *
- *    Unless required by applicable law or agreed to in writing, software
- *    distributed under the License is distributed on an "AS IS" BASIS,
- *    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- *    See the License for the specific language governing permissions and
- *    limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package com.hackathon.aihelper
@@ -107,6 +107,28 @@ object GhostSanitizer {
                 }
             }
         }
+
+        // ---------------------------------------------------------
+        // 4. THE SECURITY SCRUBBER (The "Auto-Sanitization" Feature)
+        // ---------------------------------------------------------
+        // I added this so the README isn't lying. If the AI suggests a hardcoded password
+        // or a known bad pattern, I scrub it out before it hits the editor.
+
+        // Scrub hardcoded credentials (Variables named password, secret, token, key)
+        cleanAI = cleanAI.replace(
+            Regex("(?i)(password|secret|token|key|pwd)\\s*(:|=)\\s*[\"'][^\"']+[\"']"),
+            "$1 $2 \"[REDACTED BY AUEV]\""
+        )
+
+        // Scrub weak crypto algorithms (Because MD5/SHA-1 are basically plaintext now)
+        cleanAI = cleanAI.replace(
+            Regex("(?i)getInstance\\([\"']MD5[\"']\\)"),
+            "getInstance(\"SHA-256\" /* AUEV: Upgraded from weak MD5 */)"
+        )
+        cleanAI = cleanAI.replace(
+            Regex("(?i)getInstance\\([\"']SHA-1[\"']\\)"),
+            "getInstance(\"SHA-256\" /* AUEV: Upgraded from weak SHA-1 */)"
+        )
 
         return MergeResult(cleanAI.trimEnd(), charsToDelete)
     }

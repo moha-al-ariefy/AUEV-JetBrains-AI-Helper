@@ -43,7 +43,8 @@ class AppSettingsConfigurable : Configurable {
         val settings = AppSettingsState.getInstance()
         return settingsComponent?.apiKey != settings.apiKey ||
                 settingsComponent?.modelName != settings.modelName ||
-                settingsComponent?.enableGhostText != settings.enableGhostText // I check if the ghost toggle changed
+                settingsComponent?.enableGhostText != settings.enableGhostText ||
+                settingsComponent?.paranoidMode != settings.paranoidMode // <-- ADDED THIS
     }
 
     override fun apply() {
@@ -51,9 +52,8 @@ class AppSettingsConfigurable : Configurable {
         settings.apiKey = settingsComponent?.apiKey ?: ""
         settings.modelName = settingsComponent?.modelName ?: "gpt-4o"
         settings.enableGhostText = settingsComponent?.enableGhostText ?: true
+        settings.paranoidMode = settingsComponent?.paranoidMode ?: false // <-- ADDED THIS
 
-        // HERE IS THE MAGIC!
-        // If the user wants the ghost, I start it. If not, I stop it.
         if (settings.enableGhostText) {
             AutoDevManager.start()
         } else {
@@ -66,8 +66,9 @@ class AppSettingsConfigurable : Configurable {
         settingsComponent?.apiKey = settings.apiKey
         settingsComponent?.modelName = settings.modelName
         settingsComponent?.enableGhostText = settings.enableGhostText
+        settingsComponent?.paranoidMode = settings.paranoidMode // <-- ADDED THIS
     }
-
+    
     override fun disposeUIResources() {
         settingsComponent = null
     }

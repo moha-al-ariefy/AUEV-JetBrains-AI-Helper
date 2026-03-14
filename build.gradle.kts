@@ -11,7 +11,7 @@ plugins {
 }
 
 group = "com.hackathon"
-version = "0.5b-BETA-2025" //yes... its still 0.5b i need to make sure all working well
+version = "0.6-BETA-2026" // 0.6 update finally done
 
 repositories {
     mavenCentral()

@@ -1,18 +1,21 @@
-# AUEV (AI Unified Editor Vision) - Beta 0.5b
+# AUEV (AI Unified Editor Vision) - Beta 0.6
 
 **AUEV** is a **Security-First** AI development suite for IntelliJ IDEA (2025.3+).
+
+[🌐 Visit the Official Website](https://auev-bymrsheep.vercel.app/)
 
 While other plugins just generate code, AUEV audits it. We combine the speed of "Ghost Text" with a **Paranoid Security Architecture** designed to stop vulnerabilities *before* you commit them.
 
 **"Code fast, don't get hacked."**
 
-![Status](https://img.shields.io/badge/Status-Beta_0.5b-orange) ![Focus](https://img.shields.io/badge/Focus-Security_First-red) ![License](https://img.shields.io/badge/License-Apache_2.0-green)
+![Status](https://img.shields.io/badge/Status-Beta_0.6-orange) ![Focus](https://img.shields.io/badge/Focus-Security_First-red) ![License](https://img.shields.io/badge/License-Apache_2.0-green)
 
 ## The Security Pivot
 We have shifted our core focus. AUEV is no longer just a coding assistant; it is a **guardian**.
+* **Local Secret Scanning:** Aggressive local heuristics intercept and block the AI if it attempts to hallucinate or hardcode secrets (AWS, GitHub, OpenAI keys).
+* **Auto-Sanitization & Crypto Upgrades:** The "Ghost" engine actively patches weak algorithms (e.g., auto-upgrading MD5/SHA-1 to SHA-256) and scrubs potential secrets from suggestions on the fly.
+* **Strict Syntax Validation:** Hooks directly into IntelliJ's PSI tree to actively reject invalid syntax and spaghetti code before it pollutes your editor.
 * **Paranoid Mode:** A dedicated setting that injects strict OWASP security guidelines into every AI prompt.
-* **Auto-Sanitization:** The "Ghost" engine actively strips potential secrets or malicious patterns from suggestions.
-* **One-Click Audit:** Instantly grade your file against common vulnerabilities (SQLi, XSS, Weak Crypto).
 
 ---
 
@@ -54,13 +57,14 @@ We have shifted our core focus. AUEV is no longer just a coding assistant; it is
     * **Ghost Text:** Enable/Disable based on your preference.
 
 ## Tech Stack
-* **Language:** Kotlin (JVM 17)
+* **Language:** Kotlin (JVM 21)
 * **UI Framework:** Jetpack Compose for Desktop
 * **Platform:** IntelliJ SDK 2025.3.2
-* **Architecture:** Event-Driven (EditorFactoryListener) with Asynchronous AI Execution.
+* **Architecture:** Event-Driven (EditorFactoryListener) with Asynchronous AI Execution and PSI Tree Analysis.
 
 ## License
 This project is licensed under the **Apache License 2.0**. See the `LICENSE` file for details.
 
 ---
-*Built for the JetBrains UOBD_GDG Hackathon 2026.*
+*Was Built for the JetBrains UOBD_GDG Hackathon 2026.*
+*Moved as a main project*
